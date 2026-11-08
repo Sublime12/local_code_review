@@ -23,7 +23,7 @@ func TestCommentStoreAndPromptGeneration(t *testing.T) {
 		},
 	}
 
-	store.AddOrUpdate(comment)
+	store.AddOrUpdate(&comment)
 
 	list := store.List()
 	if len(list) != 1 {

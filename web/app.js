@@ -3,7 +3,7 @@ function reviewApp() {
     branch: 'HEAD',
     repoRoot: '',
     diffMode: 'all',
-    viewMode: 'side-by-side', // 'side-by-side' or 'line-by-line'
+    viewMode: 'line-by-line',
     diffText: '',
     comments: [],
     loading: true,
@@ -12,6 +12,7 @@ function reviewApp() {
     toastVisible: false,
 
     async init() {
+      await this.loadConfig();
       await this.loadStatus();
       await this.loadComments();
       await this.loadDiff();
@@ -23,6 +24,34 @@ function reviewApp() {
       setTimeout(() => {
         this.toastVisible = false;
       }, 3000);
+    },
+
+    async loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg.viewMode) this.viewMode = cfg.viewMode;
+          if (cfg.diffMode) this.diffMode = cfg.diffMode;
+        }
+      } catch (err) {
+        console.error('Error loading config:', err);
+      }
+    },
+
+    async saveConfig() {
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            viewMode: this.viewMode,
+            diffMode: this.diffMode
+          })
+        });
+      } catch (err) {
+        console.error('Error saving config:', err);
+      }
     },
 
     async loadStatus() {
@@ -63,11 +92,13 @@ function reviewApp() {
 
     switchView(mode) {
       this.viewMode = mode;
+      this.saveConfig();
       this.renderDiff();
     },
 
     switchDiffMode(mode) {
       this.diffMode = mode;
+      this.saveConfig();
       this.loadDiff();
     },
 
@@ -88,23 +119,16 @@ function reviewApp() {
       if (typeof Diff2HtmlUI !== 'undefined') {
         const diff2htmlUi = new Diff2HtmlUI(container, this.diffText, {
           drawFileList: true,
-          matching: 'lines',
+          matching: 'none',
           outputFormat: this.viewMode,
-          highlight: true,
-          rawTemplates: {
-            'generic-file-path': '<span class="d2h-file-name">{{{file.newName}}}</span>'
-          }
+          highlight: true
         });
         diff2htmlUi.draw();
-        diff2htmlUi.highlightCode();
       } else if (typeof Diff2Html !== 'undefined') {
         const diffHtml = Diff2Html.html(this.diffText, {
           drawFileList: true,
-          matching: 'lines',
-          outputFormat: this.viewMode,
-          rawTemplates: {
-            'generic-file-path': '<span class="d2h-file-name">{{{file.newName}}}</span>'
-          }
+          matching: 'none',
+          outputFormat: this.viewMode
         });
         container.innerHTML = diffHtml;
       }
@@ -119,15 +143,21 @@ function reviewApp() {
         const fileNameEl = fileEl.querySelector('.d2h-file-name');
         if (!fileNameEl) return;
         const filePath = fileNameEl.textContent.trim();
+        if (!filePath) return;
 
-        const lineNumbers = fileEl.querySelectorAll('.d2h-code-linenumber');
+        const lineNumbers = fileEl.querySelectorAll('.d2h-code-linenumber, .d2h-code-side-linenumber');
         lineNumbers.forEach(lineEl => {
+          if (lineEl.classList.contains('d2h-info') ||
+              lineEl.classList.contains('d2h-emptyplaceholder') ||
+              lineEl.classList.contains('d2h-code-side-emptyplaceholder')) {
+            return;
+          }
           lineEl.title = "Click to add a review comment";
+          lineEl.style.cursor = "pointer";
           lineEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            const rawLine = lineEl.textContent.replace(/\+/g, '').replace(/-/g, '').trim();
-            const lineNum = parseInt(rawLine, 10);
-            if (!lineNum || isNaN(lineNum)) return;
+            const lineNum = extractLineNumber(lineEl);
+            if (!lineNum) return;
 
             const row = lineEl.closest('tr');
             if (row) {
@@ -139,12 +169,34 @@ function reviewApp() {
     },
 
     showCommentInput(filePath, lineNumber, rowElement) {
-      // Check if an input is already open for this line
       const nextSibling = rowElement.nextElementSibling;
       if (nextSibling && nextSibling.classList.contains('inline-comment-row')) {
         const textarea = nextSibling.querySelector('textarea');
         if (textarea) textarea.focus();
         return;
+      }
+
+      const currentPane = rowElement.closest('.d2h-file-side-diff');
+      let spacerRow = null;
+      let ro = null;
+
+      if (currentPane) {
+        const panes = currentPane.parentElement.querySelectorAll('.d2h-file-side-diff');
+        const otherPane = panes[0] === currentPane ? panes[1] : panes[0];
+        if (otherPane) {
+          const currentTbody = rowElement.closest('tbody');
+          const rowIndex = Array.from(currentTbody.children).indexOf(rowElement);
+          const otherTbody = otherPane.querySelector('tbody');
+          if (otherTbody) {
+            const otherRow = otherTbody.children[rowIndex];
+            if (otherRow) {
+              spacerRow = document.createElement('tr');
+              spacerRow.className = 'inline-comment-spacer-row';
+              spacerRow.innerHTML = `<td colspan="${otherRow.children.length || 2}" class="inline-comment-spacer"></td>`;
+              otherRow.parentNode.insertBefore(spacerRow, otherRow.nextSibling);
+            }
+          }
+        }
       }
 
       const commentRow = document.createElement('tr');
@@ -155,7 +207,7 @@ function reviewApp() {
         <td colspan="${colSpan}">
           <div class="inline-comment-box">
             <div class="comment-box-header">
-              <span><strong>Add Comment</strong> on <code>${filePath}:${lineNumber}</code></span>
+              <span><strong>Add Comment</strong> on <code>${escapeHtml(filePath)}:${lineNumber}</code></span>
               <span style="font-size: 0.75rem;">Press Ctrl+Enter to save</span>
             </div>
             <textarea class="comment-textarea" placeholder="Leave a review comment for the agent (e.g., 'You should handle errors here instead of ignoring them')..."></textarea>
@@ -169,22 +221,37 @@ function reviewApp() {
 
       rowElement.parentNode.insertBefore(commentRow, rowElement.nextSibling);
 
+      if (spacerRow) {
+        ro = new ResizeObserver(() => {
+          if (spacerRow && spacerRow.isConnected && commentRow.isConnected) {
+            spacerRow.style.height = `${commentRow.offsetHeight}px`;
+          }
+        });
+        ro.observe(commentRow);
+      }
+
       const textarea = commentRow.querySelector('textarea');
       const saveBtn = commentRow.querySelector('.btn-save');
       const cancelBtn = commentRow.querySelector('.btn-cancel');
 
       textarea.focus();
 
+      const cleanup = () => {
+        if (ro) ro.disconnect();
+        if (spacerRow) spacerRow.remove();
+        commentRow.remove();
+      };
+
       const save = async () => {
         const text = textarea.value.trim();
         if (!text) return;
         await this.addComment(filePath, lineNumber, text);
-        commentRow.remove();
+        cleanup();
         this.renderExistingComments();
       };
 
       saveBtn.addEventListener('click', save);
-      cancelBtn.addEventListener('click', () => commentRow.remove());
+      cancelBtn.addEventListener('click', cleanup);
       textarea.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
           save();
@@ -219,8 +286,7 @@ function reviewApp() {
     },
 
     renderExistingComments() {
-      // Remove all currently rendered comment display cards in the table
-      document.querySelectorAll('.rendered-comment-row').forEach(el => el.remove());
+      document.querySelectorAll('.rendered-comment-row, .inline-comment-spacer-row').forEach(el => el.remove());
 
       const fileWrappers = document.querySelectorAll('.d2h-file-wrapper');
       fileWrappers.forEach(fileEl => {
@@ -230,23 +296,64 @@ function reviewApp() {
 
         const fileComments = this.comments.filter(c => c.filePath === filePath);
         fileComments.forEach(comment => {
-          // Find the row with matching line number
-          const lineElements = fileEl.querySelectorAll('.d2h-code-linenumber');
-          for (let el of lineElements) {
-            const num = parseInt(el.textContent.replace(/\+/g, '').replace(/-/g, '').trim(), 10);
-            if (num === comment.line) {
-              const row = el.closest('tr');
-              if (row) {
-                this.insertCommentCard(row, comment);
+          let targetRow = null;
+
+          const sideDiffs = fileEl.querySelectorAll('.d2h-file-side-diff');
+          if (sideDiffs.length >= 2) {
+            const rightPane = sideDiffs[1];
+            const leftPane = sideDiffs[0];
+
+            for (const pane of [rightPane, leftPane]) {
+              const lines = pane.querySelectorAll('.d2h-code-side-linenumber');
+              for (const el of lines) {
+                if (extractLineNumber(el) === comment.line) {
+                  targetRow = el.closest('tr');
+                  break;
+                }
+              }
+              if (targetRow) break;
+            }
+          } else {
+            const lines = fileEl.querySelectorAll('.d2h-code-linenumber');
+            for (const el of lines) {
+              if (extractLineNumber(el) === comment.line) {
+                targetRow = el.closest('tr');
                 break;
               }
             }
+          }
+
+          if (targetRow) {
+            this.insertCommentCard(targetRow, comment);
           }
         });
       });
     },
 
     insertCommentCard(rowElement, comment) {
+      const currentPane = rowElement.closest('.d2h-file-side-diff');
+      let spacerRow = null;
+      let ro = null;
+
+      if (currentPane) {
+        const panes = currentPane.parentElement.querySelectorAll('.d2h-file-side-diff');
+        const otherPane = panes[0] === currentPane ? panes[1] : panes[0];
+        if (otherPane) {
+          const currentTbody = rowElement.closest('tbody');
+          const rowIndex = Array.from(currentTbody.children).indexOf(rowElement);
+          const otherTbody = otherPane.querySelector('tbody');
+          if (otherTbody) {
+            const otherRow = otherTbody.children[rowIndex];
+            if (otherRow) {
+              spacerRow = document.createElement('tr');
+              spacerRow.className = 'inline-comment-spacer-row';
+              spacerRow.innerHTML = `<td colspan="${otherRow.children.length || 2}" class="inline-comment-spacer"></td>`;
+              otherRow.parentNode.insertBefore(spacerRow, otherRow.nextSibling);
+            }
+          }
+        }
+      }
+
       const commentRow = document.createElement('tr');
       commentRow.className = 'rendered-comment-row';
       const colSpan = rowElement.children.length || 2;
@@ -256,7 +363,7 @@ function reviewApp() {
           <div class="existing-comment-card">
             <div class="existing-comment-header">
               <span>💬 <strong>Line ${comment.line}</strong></span>
-              <button class="btn btn-danger" style="padding: 2px 8px; font-size: 0.75rem;" data-id="${comment.id}">Delete</button>
+              <button class="btn btn-danger" style="padding: 2px 8px; font-size: 0.75rem;" data-id="${escapeHtml(comment.id)}">Delete</button>
             </div>
             <div class="existing-comment-body">${escapeHtml(comment.text)}</div>
           </div>
@@ -265,9 +372,23 @@ function reviewApp() {
 
       rowElement.parentNode.insertBefore(commentRow, rowElement.nextSibling);
 
+      if (spacerRow) {
+        ro = new ResizeObserver(() => {
+          if (spacerRow && spacerRow.isConnected && commentRow.isConnected) {
+            spacerRow.style.height = `${commentRow.offsetHeight}px`;
+          }
+        });
+        ro.observe(commentRow);
+      }
+
       const delBtn = commentRow.querySelector('button');
       if (delBtn) {
-        delBtn.addEventListener('click', () => this.deleteComment(comment.id));
+        delBtn.addEventListener('click', async () => {
+          if (ro) ro.disconnect();
+          if (spacerRow) spacerRow.remove();
+          commentRow.remove();
+          await this.deleteComment(comment.id);
+        });
       }
     },
 
@@ -279,11 +400,35 @@ function reviewApp() {
           body: JSON.stringify({ saveToFile: false })
         });
         const data = await res.json();
-        await navigator.clipboard.writeText(data.prompt);
+        const text = data.prompt || '';
+
+        let copied = false;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+          } catch (_) {}
+        }
+
+        if (!copied) {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          try {
+            document.execCommand('copy');
+            copied = true;
+          } catch (_) {}
+          ta.remove();
+        }
+
         this.showToast('📋 Copied formatted prompt to clipboard!');
       } catch (err) {
         console.error('Error copying prompt:', err);
-        alert('Failed to copy to clipboard.');
+        this.showToast('⚠️ Failed to copy prompt');
       }
     },
 
@@ -303,10 +448,32 @@ function reviewApp() {
   };
 }
 
+function extractLineNumber(lineEl) {
+  if (!lineEl || lineEl.classList.contains('d2h-info') || 
+      lineEl.classList.contains('d2h-emptyplaceholder') || 
+      lineEl.classList.contains('d2h-code-side-emptyplaceholder')) {
+    return null;
+  }
+  const lineNum2 = lineEl.querySelector('.line-num2');
+  if (lineNum2 && lineNum2.textContent.trim()) {
+    const val = parseInt(lineNum2.textContent.trim(), 10);
+    if (!isNaN(val) && val > 0) return val;
+  }
+  const lineNum1 = lineEl.querySelector('.line-num1');
+  if (lineNum1 && lineNum1.textContent.trim()) {
+    const val = parseInt(lineNum1.textContent.trim(), 10);
+    if (!isNaN(val) && val > 0) return val;
+  }
+  const clean = lineEl.textContent.replace(/[^0-9]/g, '').trim();
+  const val = parseInt(clean, 10);
+  return (!isNaN(val) && val > 0) ? val : null;
+}
+
 function escapeHtml(str) {
-  return str.replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+  if (!str) return '';
+  return String(str).replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
 }

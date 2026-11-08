@@ -26,7 +26,7 @@ Clone and build the binary:
 ```bash
 git clone https://github.com/Sublime12/local_code_review.git
 cd local_code_review
-go build -o local-review .
+make all # builds local-review and review-e2e
 ```
 
 Move it to your `$PATH` (e.g. `~/.local/bin` or `/usr/local/bin`):
@@ -97,8 +97,21 @@ file_path/a/b/c.js:89
 
 ## 🧪 Running Tests
 
+### Unit Tests
 ```bash
-go test ./... -v
+go test ./git ./server -v
+```
+
+### Playwright E2E Functional Tests (Pure Go, Zero npm)
+You can run the full browser automation suite directly using standard Go:
+```bash
+go test -v ./e2e/...
+```
+
+Or compile and run the dedicated test binary:
+```bash
+go build -o review-e2e ./cmd/review-e2e
+./review-e2e
 ```
 
 ---

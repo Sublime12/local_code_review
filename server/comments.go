@@ -35,7 +35,7 @@ func NewCommentStore() *CommentStore {
 }
 
 // AddOrUpdate inserts or updates a comment
-func (s *CommentStore) AddOrUpdate(c Comment) {
+func (s *CommentStore) AddOrUpdate(c *Comment) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if c.ID == "" {
@@ -44,7 +44,7 @@ func (s *CommentStore) AddOrUpdate(c Comment) {
 	if c.CreatedAt.IsZero() {
 		c.CreatedAt = time.Now()
 	}
-	s.comments[c.ID] = c
+	s.comments[c.ID] = *c
 }
 
 // Delete removes a comment by ID
@@ -105,6 +105,6 @@ func (s *CommentStore) SaveToFile(repoRoot, filename string) error {
 		filename = ".review.md"
 	}
 	fullPath := filepath.Join(repoRoot, filename)
-	content := s.GeneratePrompt()
+	content := s.GeneratePrompt() + "\n"
 	return os.WriteFile(fullPath, []byte(content), 0644)
 }

@@ -1,5 +1,6 @@
 # Binaries
-local-review
+/local-review
+/review-e2e
 *.exe
 *.exe~
 *.dll
@@ -10,8 +11,14 @@ local-review
 *.test
 *.out
 
-# Review output
+# Review output & config
 .review.md
+.local-review.json
+
+# Node / Playwright
+node_modules/
+test-results/
+playwright-report/
 
 # IDE / OS
 .DS_Store

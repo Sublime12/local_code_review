@@ -26,7 +26,6 @@ func main() {
 	refFlag := flag.String("ref", "", "Git ref to compare against (e.g. main, HEAD~1)")
 	flag.Parse()
 
-	// 1. Verify inside a git repository
 	isGit, err := git.IsInsideWorkTree()
 	if err != nil || !isGit {
 		fmt.Fprintf(os.Stderr, "Error: Current directory is not inside a Git repository.\n")
@@ -39,13 +38,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	_ = refFlag // Can be passed or selected in UI
+	_ = refFlag
 
-	// 2. Select port and create listener
 	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		// Fallback to random free port
 		listener, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to start listener: %v\n", err)
@@ -57,13 +54,11 @@ func main() {
 	assignedPort := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://localhost:%d", assignedPort)
 
-	// 3. Initialize server
 	srv := server.NewServer(repoRoot, webAssets)
 	httpServer := &http.Server{
 		Handler: srv.Handler(),
 	}
 
-	// 4. Start server in goroutine
 	go func() {
 		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -77,7 +72,6 @@ func main() {
 	fmt.Println(" Press Ctrl+C to stop the review server")
 	fmt.Println("=======================================================")
 
-	// 5. Open browser
 	if !*noBrowserFlag {
 		go func() {
 			time.Sleep(100 * time.Millisecond)
@@ -85,7 +79,6 @@ func main() {
 		}()
 	}
 
-	// 6. Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan

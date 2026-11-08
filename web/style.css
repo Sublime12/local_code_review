@@ -16,6 +16,22 @@
   --gh-red-token: rgba(248, 81, 73, 0.4);
   --gh-btn-primary: #238636;
   --gh-btn-primary-hover: #2ea043;
+
+  /* Aliases for compatibility */
+  --text-primary: var(--gh-text);
+  --text-secondary: var(--gh-text-muted);
+  --bg-primary: var(--gh-bg);
+  --bg-secondary: var(--gh-surface);
+  --bg-tertiary: var(--gh-surface-overlay);
+  --border-color: var(--gh-border);
+  --blue-color: var(--gh-link);
+  --accent-color: var(--gh-btn-primary);
+  --accent-hover: var(--gh-btn-primary-hover);
+  --danger-color: var(--gh-red-text);
+}
+
+[x-cloak] {
+  display: none !important;
 }
 
 * {
@@ -404,6 +420,18 @@ del, .d2h-del-token {
   background-color: var(--gh-surface);
   border-top: 1px solid var(--gh-border);
   border-bottom: 1px solid var(--gh-border);
+}
+
+.inline-comment-spacer-row {
+  background-color: var(--gh-surface);
+  border-top: 1px solid var(--gh-border);
+  border-bottom: 1px solid var(--gh-border);
+}
+
+.inline-comment-spacer {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
 }
 
 .inline-comment-box {

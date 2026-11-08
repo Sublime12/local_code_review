@@ -56,26 +56,27 @@ func GetCurrentBranch() string {
 func GetDiff(mode string, ref string) (string, error) {
 	var args []string
 	hasHead := HasHeadCommit()
+	diffBase := []string{"diff", "--diff-algorithm=histogram", "-U3"}
 
 	switch mode {
 	case "staged":
-		args = []string{"diff", "-U3", "--cached"}
+		args = append(diffBase, "--cached")
 	case "unstaged":
-		args = []string{"diff", "-U3"}
+		args = diffBase
 	case "branch":
 		if ref == "" {
 			ref = "main"
 		}
-		args = []string{"diff", "-U3", ref}
+		args = append(diffBase, ref)
 	case "all":
 		fallthrough
 	default:
 		if ref != "" {
-			args = []string{"diff", "-U3", ref}
+			args = append(diffBase, ref)
 		} else if hasHead {
-			args = []string{"diff", "-U3", "HEAD"}
+			args = append(diffBase, "HEAD")
 		} else {
-			args = []string{"diff", "-U3"}
+			args = diffBase
 		}
 	}
 
@@ -87,20 +88,21 @@ func GetDiff(mode string, ref string) (string, error) {
 
 	diffText := string(out)
 
-	// If diff is empty and mode is unstaged or all, include untracked new files
-	if strings.TrimSpace(diffText) == "" && (mode == "all" || mode == "unstaged" || mode == "") {
+	if mode == "all" || mode == "unstaged" || mode == "" {
 		untrackedDiff, _ := getUntrackedDiff()
 		if untrackedDiff != "" {
-			diffText = untrackedDiff
+			if diffText != "" && !strings.HasSuffix(diffText, "\n") {
+				diffText += "\n"
+			}
+			diffText += untrackedDiff
 		}
 	}
 
 	return diffText, nil
 }
 
-// getUntrackedDiff provides a diff representation for newly created, untracked files
 func getUntrackedDiff() (string, error) {
-	cmd := exec.Command("git", "status", "--porcelain")
+	cmd := exec.Command("git", "status", "--porcelain", "-uall")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -112,8 +114,7 @@ func getUntrackedDiff() (string, error) {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "?? ") {
 			filePath := strings.TrimSpace(line[3:])
-			// Generate diff against /dev/null for untracked files
-			diffCmd := exec.Command("git", "diff", "--no-index", "--", "/dev/null", filePath)
+			diffCmd := exec.Command("git", "diff", "--diff-algorithm=histogram", "--no-index", "--", "/dev/null", filePath)
 			diffOut, _ := diffCmd.CombinedOutput()
 			sb.Write(diffOut)
 		}

@@ -13,7 +13,6 @@
 </head>
 <body x-data="reviewApp()" x-init="init()">
 
-  <!-- Top Sticky Navigation Bar -->
   <header class="top-header">
     <div class="brand">
       <h1>🔍 Local Code Review</h1>
@@ -21,22 +20,19 @@
     </div>
 
     <div class="header-controls">
-      <!-- Diff Target Selector -->
-      <label style="font-size: 0.85rem; color: var(--text-secondary);">Diff:</label>
+      <label style="font-size: 0.85rem; color: var(--gh-text-muted);">Diff:</label>
       <select class="select-input" x-model="diffMode" @change="switchDiffMode($event.target.value)">
         <option value="all">Uncommitted (Working Tree + Staged)</option>
         <option value="unstaged">Unstaged Only</option>
         <option value="staged">Staged Only</option>
       </select>
 
-      <!-- View Mode Selector -->
-      <label style="font-size: 0.85rem; color: var(--text-secondary); margin-left: 8px;">View:</label>
+      <label style="font-size: 0.85rem; color: var(--gh-text-muted); margin-left: 8px;">View:</label>
       <select class="select-input" x-model="viewMode" @change="switchView($event.target.value)">
-        <option value="side-by-side">Split (Side-by-Side)</option>
         <option value="line-by-line">Unified</option>
+        <option value="side-by-side">Split (Side-by-Side)</option>
       </select>
 
-      <!-- Action Buttons -->
       <button class="btn btn-secondary" @click="loadDiff()" title="Reload Git Diff">
         🔄 Refresh
       </button>
@@ -52,18 +48,16 @@
     </div>
   </header>
 
-  <!-- Main Diff Viewer -->
   <main class="main-container">
     <div class="diff-content">
-      <div x-show="loading" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+      <div x-show="loading" style="text-align: center; padding: 40px; color: var(--gh-text-muted);">
         Loading Git Diff...
       </div>
       <div id="diff-viewer" x-show="!loading"></div>
     </div>
   </main>
 
-  <!-- Toast Notification -->
-  <div class="toast" x-show="toastVisible" x-text="toastMessage" style="display: none;"></div>
+  <div class="toast" x-show="toastVisible" x-text="toastMessage" x-cloak></div>
 
 </body>
 </html>

@@ -30,15 +30,14 @@ func NewServer(repoRoot string, webFS embed.FS) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// API endpoints
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/api/context", s.handleContext)
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/export", s.handleExport)
 	mux.HandleFunc("/api/clear", s.handleClear)
+	mux.HandleFunc("/api/config", s.handleConfig)
 
-	// Embedded static file serving
 	subFS, err := fs.Sub(s.webFS, "web")
 	if err == nil {
 		fileServer := http.FileServer(http.FS(subFS))
@@ -125,13 +124,12 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Automatically attach code context snippet if not provided
 		if len(c.Snippet) == 0 {
 			lines, _ := git.GetLineContext(s.repoRoot, c.FilePath, c.Line, 2)
 			c.Snippet = lines
 		}
 
-		s.store.AddOrUpdate(c)
+		s.store.AddOrUpdate(&c)
 		writeJSON(w, http.StatusOK, c)
 
 	case http.MethodDelete:
