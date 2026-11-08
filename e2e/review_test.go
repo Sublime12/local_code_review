@@ -610,3 +610,84 @@ func TestFileExplorerSidebarToggleAndPersistence(t *testing.T) {
 		t.Fatalf("Sidebar should remain closed after reload based on saved config (isVisible: %v, err: %v)", isVisible, err)
 	}
 }
+
+func TestUnifiedLineNumbersSingleRowAlignment(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	cntxCell := page.Locator("td.d2h-code-linenumber.d2h-cntx").First()
+	if err := cntxCell.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Context line number cell not visible: %v", err)
+	}
+
+	result, err := page.Evaluate(`() => {
+		const cell = document.querySelector('td.d2h-code-linenumber.d2h-cntx');
+		if (!cell) return { error: 'no context cell' };
+		const tr = cell.closest('tr');
+		const num1 = cell.querySelector('.line-num1');
+		const num2 = cell.querySelector('.line-num2');
+		const codeLine = tr.querySelector('.d2h-code-line');
+		const r1 = num1.getBoundingClientRect();
+		const r2 = num2.getBoundingClientRect();
+		const rc = codeLine.getBoundingClientRect();
+		const rtr = tr.getBoundingClientRect();
+		return {
+			top1: r1.top,
+			top2: r2.top,
+			topCode: rc.top,
+			left1: r1.left,
+			left2: r2.left,
+			leftCode: rc.left,
+			rowHeight: rtr.height
+		};
+	}`)
+	if err != nil {
+		t.Fatalf("Failed to evaluate bounding rects: %v", err)
+	}
+
+	metrics, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Unexpected metrics type: %T", result)
+	}
+	if errMsg, hasErr := metrics["error"]; hasErr {
+		t.Fatalf("Evaluate error: %v", errMsg)
+	}
+
+	top1 := toFloat64(metrics["top1"])
+	top2 := toFloat64(metrics["top2"])
+	topCode := toFloat64(metrics["topCode"])
+	left1 := toFloat64(metrics["left1"])
+	left2 := toFloat64(metrics["left2"])
+	rowHeight := toFloat64(metrics["rowHeight"])
+
+	if top1 != top2 {
+		t.Errorf("Expected line-num1 and line-num2 on same horizontal line, got top1=%v, top2=%v", top1, top2)
+	}
+	if top1 != topCode {
+		t.Errorf("Expected line numbers and code on same horizontal line, got top1=%v, topCode=%v", top1, topCode)
+	}
+	if left1 >= left2 {
+		t.Errorf("Expected line-num1 to the left of line-num2, got left1=%v, left2=%v", left1, left2)
+	}
+	if rowHeight > 24 {
+		t.Errorf("Expected single-line row height (<= 24px), got %v", rowHeight)
+	}
+}
+
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int:
+		return float64(val)
+	default:
+		return 0
+	}
+}

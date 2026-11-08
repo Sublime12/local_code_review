@@ -577,37 +577,83 @@ body {
   font-size: 12px !important;
   line-height: 20px !important;
   border-collapse: collapse !important;
+  width: 100% !important;
 }
 
 .d2h-diff-tbody {
   background-color: var(--gh-bg) !important;
 }
 
+.d2h-diff-tbody > tr > td {
+  vertical-align: top !important;
+}
+
 .d2h-code-line, .d2h-code-side-line {
+  display: block !important;
+  width: auto !important;
   background-color: transparent !important;
   color: var(--gh-text) !important;
   padding: 0 8px !important;
   font-family: inherit !important;
+  white-space: nowrap !important;
+}
+
+.d2h-code-line-prefix {
+  display: inline !important;
 }
 
 .d2h-code-line-ctn {
+  display: inline !important;
+  width: auto !important;
   color: var(--gh-text) !important;
   font-family: inherit !important;
+  vertical-align: baseline !important;
 }
 
 /* Line Numbers */
 .d2h-code-linenumber, .d2h-code-side-linenumber {
+  display: table-cell !important;
+  position: relative !important;
+  direction: ltr !important;
+  white-space: nowrap !important;
   background-color: var(--gh-bg) !important;
   color: var(--gh-text-muted) !important;
   border-color: var(--gh-border) !important;
   font-family: inherit !important;
   font-size: 12px !important;
-  padding: 0 10px !important;
   cursor: pointer;
-  position: relative;
   user-select: none;
-  min-width: 44px !important;
   text-align: right !important;
+  vertical-align: top !important;
+}
+
+.d2h-code-linenumber {
+  width: 88px !important;
+  min-width: 88px !important;
+  max-width: 88px !important;
+  padding: 0 4px !important;
+}
+
+.d2h-code-side-linenumber {
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  padding: 0 8px !important;
+}
+
+.d2h-code-linenumber::after, .d2h-code-side-linenumber::after {
+  content: none !important;
+}
+
+.d2h-code-linenumber .line-num1,
+.d2h-code-linenumber .line-num2 {
+  display: inline-block !important;
+  float: none !important;
+  width: 38px !important;
+  padding: 0 4px !important;
+  text-align: right !important;
+  box-sizing: border-box !important;
+  vertical-align: top !important;
 }
 
 .d2h-code-linenumber:hover, .d2h-code-side-linenumber:hover {
@@ -616,7 +662,7 @@ body {
 }
 
 .d2h-code-linenumber:hover::after, .d2h-code-side-linenumber:hover::after {
-  content: "+";
+  content: "+" !important;
   position: absolute;
   left: 6px;
   top: 50%;
