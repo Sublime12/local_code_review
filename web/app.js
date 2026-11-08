@@ -85,16 +85,30 @@ function reviewApp() {
         return;
       }
 
-      const diffHtml = Diff2Html.html(this.diffText, {
-        drawFileList: true,
-        matching: 'lines',
-        outputFormat: this.viewMode,
-        rawTemplates: {
-          'generic-file-path': '<span class="d2h-file-name">{{{file.newName}}}</span>'
-        }
-      });
+      if (typeof Diff2HtmlUI !== 'undefined') {
+        const diff2htmlUi = new Diff2HtmlUI(container, this.diffText, {
+          drawFileList: true,
+          matching: 'lines',
+          outputFormat: this.viewMode,
+          highlight: true,
+          rawTemplates: {
+            'generic-file-path': '<span class="d2h-file-name">{{{file.newName}}}</span>'
+          }
+        });
+        diff2htmlUi.draw();
+        diff2htmlUi.highlightCode();
+      } else if (typeof Diff2Html !== 'undefined') {
+        const diffHtml = Diff2Html.html(this.diffText, {
+          drawFileList: true,
+          matching: 'lines',
+          outputFormat: this.viewMode,
+          rawTemplates: {
+            'generic-file-path': '<span class="d2h-file-name">{{{file.newName}}}</span>'
+          }
+        });
+        container.innerHTML = diffHtml;
+      }
 
-      container.innerHTML = diffHtml;
       this.attachLineListeners();
       this.renderExistingComments();
     },
