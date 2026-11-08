@@ -1,0 +1,19 @@
+# Binaries
+local-review
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+
+# Review output
+.review.md
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/

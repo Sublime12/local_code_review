@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Code Review</title>
+  <link rel="stylesheet" href="/vendor/diff2html.min.css">
+  <link rel="stylesheet" href="/vendor/highlight-github-dark.min.css">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/diff2html.min.js"></script>
+  <script src="/vendor/alpine.min.js" defer></script>
+  <script src="/app.js"></script>
+</head>
+<body x-data="reviewApp()" x-init="init()">
+
+  <!-- Top Sticky Navigation Bar -->
+  <header class="top-header">
+    <div class="brand">
+      <h1>🔍 Local Code Review</h1>
+      <span class="branch-badge" x-text="branch"></span>
+    </div>
+
+    <div class="header-controls">
+      <!-- Diff Target Selector -->
+      <label style="font-size: 0.85rem; color: var(--text-secondary);">Diff:</label>
+      <select class="select-input" x-model="diffMode" @change="switchDiffMode($event.target.value)">
+        <option value="all">Uncommitted (Working Tree + Staged)</option>
+        <option value="unstaged">Unstaged Only</option>
+        <option value="staged">Staged Only</option>
+      </select>
+
+      <!-- View Mode Selector -->
+      <label style="font-size: 0.85rem; color: var(--text-secondary); margin-left: 8px;">View:</label>
+      <select class="select-input" x-model="viewMode" @change="switchView($event.target.value)">
+        <option value="side-by-side">Split (Side-by-Side)</option>
+        <option value="line-by-line">Unified</option>
+      </select>
+
+      <!-- Action Buttons -->
+      <button class="btn btn-secondary" @click="loadDiff()" title="Reload Git Diff">
+        🔄 Refresh
+      </button>
+
+      <button class="btn btn-blue" @click="saveToFile()" title="Write comments to .review.md in repository root">
+        💾 Save to .review.md
+      </button>
+
+      <button class="btn btn-primary" @click="copyPrompt()" title="Copy formatted comments for AI Agent">
+        📋 Copy for Agent
+        <span class="badge" x-show="comments.length > 0" x-text="comments.length"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Diff Viewer -->
+  <main class="main-container">
+    <div class="diff-content">
+      <div x-show="loading" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+        Loading Git Diff...
+      </div>
+      <div id="diff-viewer" x-show="!loading"></div>
+    </div>
+  </main>
+
+  <!-- Toast Notification -->
+  <div class="toast" x-show="toastVisible" x-text="toastMessage" style="display: none;"></div>
+
+</body>
+</html>
