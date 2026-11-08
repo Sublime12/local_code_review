@@ -66,7 +66,7 @@ func main() {
 	}()
 
 	fmt.Println("=======================================================")
-	fmt.Println(" 🔍 Local Code Review")
+	fmt.Println(" Local Code Review")
 	fmt.Printf(" Repository: %s\n", repoRoot)
 	fmt.Printf(" Server running at: %s\n", url)
 	fmt.Println(" Press Ctrl+C to stop the review server")

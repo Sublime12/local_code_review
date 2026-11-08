@@ -15,7 +15,7 @@
 
   <header class="top-header">
     <div class="brand">
-      <h1>🔍 Local Code Review</h1>
+      <h1>Local Code Review</h1>
       <span class="branch-badge" x-text="branch"></span>
     </div>
 
@@ -34,15 +34,15 @@
       </select>
 
       <button class="btn btn-secondary" @click="loadDiff()" title="Reload Git Diff">
-        🔄 Refresh
+        Refresh
       </button>
 
       <button class="btn btn-blue" @click="saveToFile()" title="Write comments to .review.md in repository root">
-        💾 Save to .review.md
+        Save to .review.md
       </button>
 
       <button class="btn btn-primary" @click="copyPrompt()" title="Copy formatted comments for AI Agent">
-        📋 Copy for Agent
+        Copy for Agent
         <span class="badge" x-show="comments.length > 0" x-text="comments.length"></span>
       </button>
     </div>

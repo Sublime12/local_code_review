@@ -1,4 +1,4 @@
-# 🔍 Local Code Review
+# Local Code Review
 
 A local, GitHub PR-style code review tool that runs completely offline as a **single Go binary**.
 
@@ -6,7 +6,7 @@ Built specifically for AI coding agent workflows (Claude Code, Cursor, Codex, lo
 
 ---
 
-## ✨ Features
+## Features
 
 - **GitHub PR-Style Interface:** Side-by-side (split) and line-by-line (unified) views powered by `diff2html` and `Alpine.js`.
 - **Inline Commenting:** Click on any line number to attach review comments.
@@ -17,7 +17,7 @@ Built specifically for AI coding agent workflows (Claude Code, Cursor, Codex, lo
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -60,7 +60,7 @@ local-review -ref main
 
 ---
 
-## 🤖 The AI Agent Review Loop
+## The AI Agent Review Loop
 
 1. **Ask your agent** to implement a feature or refactor code.
 2. **Launch review:**
@@ -86,7 +86,7 @@ file_path/a/b/c.js:89
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Backend & CLI:** Go 1.21+ (`net/http`, `os/exec`, `//go:embed`)
 - **Frontend State:** [Alpine.js v3](https://alpinejs.dev/)
@@ -95,7 +95,7 @@ file_path/a/b/c.js:89
 
 ---
 
-## 🧪 Running Tests
+## Running Tests
 
 ### Unit Tests
 ```bash
@@ -116,6 +116,6 @@ go build -o review-e2e ./cmd/review-e2e
 
 ---
 
-## 📄 License
+## License
 
 MIT

@@ -362,7 +362,7 @@ function reviewApp() {
         <td colspan="${colSpan}">
           <div class="existing-comment-card">
             <div class="existing-comment-header">
-              <span>💬 <strong>Line ${comment.line}</strong></span>
+              <span><strong>Line ${comment.line}</strong></span>
               <button class="btn btn-danger" style="padding: 2px 8px; font-size: 0.75rem;" data-id="${escapeHtml(comment.id)}">Delete</button>
             </div>
             <div class="existing-comment-body">${escapeHtml(comment.text)}</div>
@@ -425,10 +425,10 @@ function reviewApp() {
           ta.remove();
         }
 
-        this.showToast('📋 Copied formatted prompt to clipboard!');
+        this.showToast('Copied formatted prompt to clipboard!');
       } catch (err) {
         console.error('Error copying prompt:', err);
-        this.showToast('⚠️ Failed to copy prompt');
+        this.showToast('Failed to copy prompt');
       }
     },
 
@@ -440,7 +440,7 @@ function reviewApp() {
           body: JSON.stringify({ saveToFile: true, filename: '.review.md' })
         });
         await res.json();
-        this.showToast('💾 Saved review to .review.md in repository root!');
+        this.showToast('Saved review to .review.md in repository root!');
       } catch (err) {
         console.error('Error saving review file:', err);
       }

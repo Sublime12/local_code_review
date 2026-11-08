@@ -8,7 +8,7 @@ import (
 
 func main() {
 	fmt.Println("=======================================================")
-	fmt.Println(" 🧪 Running Playwright Functional E2E Tests (Go)")
+	fmt.Println(" Running Playwright Functional E2E Tests (Go)")
 	fmt.Println("=======================================================")
 
 	cmd := exec.Command("go", "test", "-v", "./e2e/...")
@@ -16,9 +16,9 @@ func main() {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("\n❌ E2E tests failed: %v\n", err)
+		fmt.Printf("\nE2E tests failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("\n✅ All Playwright E2E functional tests passed!")
+	fmt.Println("\nAll Playwright E2E functional tests passed!")
 }
