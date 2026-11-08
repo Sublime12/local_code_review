@@ -452,3 +452,151 @@ func TestCtrlEnterAndCancel(t *testing.T) {
 		t.Fatalf("Comment card did not appear after Ctrl+Enter: %v", err)
 	}
 }
+
+func TestFileExplorerTreeAndNavigation(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	sidebar := page.Locator(".file-explorer-sidebar")
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Sidebar is not visible: %v", err)
+	}
+
+	title, err := page.TextContent(".sidebar-title-text, .sidebar-title span")
+	if err != nil || !strings.Contains(title, "Files changed") {
+		t.Fatalf("Unexpected sidebar title: %q", title)
+	}
+
+	fileRows := page.Locator(".tree-row.is-file")
+	fileCount, err := fileRows.Count()
+	if err != nil || fileCount == 0 {
+		t.Fatalf("Expected file rows in tree, got count: %d", fileCount)
+	}
+
+	firstFile := fileRows.First()
+	if err := firstFile.Click(); err != nil {
+		t.Fatalf("Failed to click first file: %v", err)
+	}
+
+	activeFile := page.Locator(".tree-row.is-file.is-active")
+	activeCount, err := activeFile.Count()
+	if err != nil || activeCount == 0 {
+		t.Fatalf("Expected active file row after click")
+	}
+
+	folderRows := page.Locator(".tree-row.is-folder")
+	folderCount, _ := folderRows.Count()
+	if folderCount > 0 {
+		firstFolder := folderRows.First()
+		initialVisibleFiles, _ := fileRows.Count()
+		if err := firstFolder.Click(); err != nil {
+			t.Fatalf("Failed to click folder row: %v", err)
+		}
+		afterCollapseFiles, _ := fileRows.Count()
+		if afterCollapseFiles > initialVisibleFiles {
+			t.Fatalf("File count should not increase after collapsing folder")
+		}
+
+		if err := firstFolder.Click(); err != nil {
+			t.Fatalf("Failed to re-expand folder: %v", err)
+		}
+	}
+}
+
+func TestFileExplorerFilter(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	filterInput := page.Locator(".sidebar-filter-input")
+	if err := filterInput.Fill("nonexistent_filename_xyz"); err != nil {
+		t.Fatalf("Failed to fill filter: %v", err)
+	}
+
+	emptyNotice := page.Locator(".tree-empty")
+	if err := emptyNotice.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Empty notice did not appear for non-matching filter: %v", err)
+	}
+
+	clearBtn := page.Locator(".filter-clear-btn")
+	if err := clearBtn.Click(); err != nil {
+		t.Fatalf("Failed to click clear filter: %v", err)
+	}
+
+	if err := emptyNotice.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden}); err != nil {
+		t.Fatalf("Empty notice did not hide after clearing filter: %v", err)
+	}
+}
+
+func TestFileExplorerSidebarToggleAndPersistence(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	sidebar := page.Locator(".file-explorer-sidebar")
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Sidebar not visible initially: %v", err)
+	}
+
+	collapseBtn := page.Locator(".icon-btn[title='Collapse sidebar']")
+	if err := collapseBtn.Click(); err != nil {
+		t.Fatalf("Failed to click collapse button: %v", err)
+	}
+
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden}); err != nil {
+		t.Fatalf("Sidebar did not hide after collapse: %v", err)
+	}
+
+	expandTab := page.Locator(".sidebar-expand-tab")
+	if err := expandTab.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Expand tab not visible when sidebar is collapsed: %v", err)
+	}
+
+	if err := expandTab.Click(); err != nil {
+		t.Fatalf("Failed to click expand tab: %v", err)
+	}
+
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Sidebar did not reopen from expand tab: %v", err)
+	}
+
+	topToggleBtn := page.Locator(".sidebar-toggle-btn")
+	if err := topToggleBtn.Click(); err != nil {
+		t.Fatalf("Failed to click top toggle button: %v", err)
+	}
+
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden}); err != nil {
+		t.Fatalf("Sidebar did not hide after top toggle click: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to reload: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	isVisible, err := page.Locator(".file-explorer-sidebar").IsVisible()
+	if err != nil || isVisible {
+		t.Fatalf("Sidebar should remain closed after reload based on saved config (isVisible: %v, err: %v)", isVisible, err)
+	}
+}

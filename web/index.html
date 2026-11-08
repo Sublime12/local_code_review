@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/vendor/highlight-github-dark.min.css">
   <link rel="stylesheet" href="/vendor/diff2html.min.css">
   <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/diff2html.min.js"></script>
   <script src="/vendor/diff2html-ui.min.js"></script>
   <script src="/vendor/alpine.min.js" defer></script>
   <script src="/app.js"></script>
@@ -20,6 +21,14 @@
     </div>
 
     <div class="header-controls">
+      <button class="btn btn-secondary sidebar-toggle-btn" @click="toggleSidebar()" :class="{ 'active': sidebarOpen }" :title="sidebarOpen ? 'Hide file tree' : 'Show file tree'">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .066.026.13.073.177l.177.073h3.5V2.5Zm5 0v11h5.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Z"/>
+        </svg>
+        <span>Files</span>
+        <span class="files-badge" x-text="filesList.length"></span>
+      </button>
+
       <label style="font-size: 0.85rem; color: var(--gh-text-muted);">Diff:</label>
       <select class="select-input" x-model="diffMode" @change="switchDiffMode($event.target.value)">
         <option value="all">Uncommitted (Working Tree + Staged)</option>
@@ -49,6 +58,93 @@
   </header>
 
   <main class="main-container">
+    <aside class="file-explorer-sidebar" x-show="sidebarOpen" x-cloak>
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          <span>Files changed</span>
+          <span class="files-badge" x-text="filesList.length"></span>
+        </div>
+        <div class="sidebar-actions">
+          <button class="icon-btn" @click="toggleAllFolders()" :title="allFoldersExpanded ? 'Collapse all folders' : 'Expand all folders'">
+            <svg x-show="allFoldersExpanded" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9 9H4v1.5h5V9ZM15 1.75v12.5a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 .75-.75h12.5c.414 0 .75.336.75.75ZM2.5 2.5v11h11v-11h-11Z"/>
+            </svg>
+            <svg x-show="!allFoldersExpanded" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M7.25 4v3.25H4v1.5h3.25V12h1.5V8.75H12v-1.5H8.75V4h-1.5ZM15 1.75v12.5a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 .75-.75h12.5c.414 0 .75.336.75.75ZM2.5 2.5v11h11v-11h-11Z"/>
+            </svg>
+          </button>
+          <button class="icon-btn" @click="toggleSidebar()" title="Collapse sidebar">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-filter-wrapper">
+        <svg class="search-icon" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/>
+        </svg>
+        <input type="text"
+               class="sidebar-filter-input"
+               placeholder="Filter changed files..."
+               x-model="fileFilter">
+        <button class="filter-clear-btn" x-show="fileFilter" @click="fileFilter = ''" title="Clear filter">&times;</button>
+      </div>
+
+      <div class="tree-container">
+        <template x-for="item in visibleTreeItems" :key="item.id">
+          <div class="tree-row"
+               :class="{ 'is-folder': item.isFolder, 'is-file': !item.isFolder, 'is-active': activeFile === item.path }"
+               :style="'padding-left: ' + (item.depth * 14 + 10) + 'px;'"
+               @click="item.isFolder ? toggleFolder(item) : scrollToFile(item.path)"
+               :title="item.path">
+            <template x-if="item.isFolder">
+              <div class="folder-content">
+                <span class="tree-chevron" :class="{ 'expanded': item.expanded }">
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/>
+                  </svg>
+                </span>
+                <svg class="tree-folder-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>
+                </svg>
+                <span class="tree-name folder-name" x-text="item.name"></span>
+              </div>
+            </template>
+
+            <template x-if="!item.isFolder">
+              <div class="file-content">
+                <span class="status-badge"
+                      :class="'status-' + item.status.toLowerCase()"
+                      x-text="item.status"
+                      :title="getStatusLabel(item.status)">
+                </span>
+                <span class="tree-name file-name" x-text="item.name"></span>
+                <div class="file-meta">
+                  <span class="comment-bubble" x-show="getFileCommentsCount(item.path) > 0" :title="getFileCommentsCount(item.path) + ' comment(s)'">
+                    💬 <span x-text="getFileCommentsCount(item.path)"></span>
+                  </span>
+                  <span class="diff-stat-add" x-show="item.addedLines > 0" x-text="'+' + item.addedLines"></span>
+                  <span class="diff-stat-del" x-show="item.deletedLines > 0" x-text="'-' + item.deletedLines"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+        <div class="tree-empty" x-show="visibleTreeItems.length === 0">
+          No files match filter
+        </div>
+      </div>
+    </aside>
+
+    <button class="sidebar-expand-tab" x-show="!sidebarOpen" @click="toggleSidebar()" title="Show changed files" x-cloak>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/>
+      </svg>
+      <span>Files (<span x-text="filesList.length"></span>)</span>
+    </button>
+
     <div class="diff-content">
       <div x-show="loading" style="text-align: center; padding: 40px; color: var(--gh-text-muted);">
         Loading Git Diff...

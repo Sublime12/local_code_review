@@ -10,6 +10,12 @@ function reviewApp() {
     empty: false,
     toastMessage: '',
     toastVisible: false,
+    sidebarOpen: true,
+    fileFilter: '',
+    activeFile: '',
+    filesList: [],
+    treeNodes: [],
+    scrollObserver: null,
 
     async init() {
       await this.loadConfig();
@@ -33,6 +39,7 @@ function reviewApp() {
           const cfg = await res.json();
           if (cfg.viewMode) this.viewMode = cfg.viewMode;
           if (cfg.diffMode) this.diffMode = cfg.diffMode;
+          if (typeof cfg.sidebarOpen === 'boolean') this.sidebarOpen = cfg.sidebarOpen;
         }
       } catch (err) {
         console.error('Error loading config:', err);
@@ -46,12 +53,183 @@ function reviewApp() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             viewMode: this.viewMode,
-            diffMode: this.diffMode
+            diffMode: this.diffMode,
+            sidebarOpen: this.sidebarOpen
           })
         });
       } catch (err) {
         console.error('Error saving config:', err);
       }
+    },
+
+    toggleSidebar() {
+      this.sidebarOpen = !this.sidebarOpen;
+      this.saveConfig();
+    },
+
+    buildTree() {
+      const root = { path: '', childrenDirs: new Map(), files: [] };
+      this.filesList.forEach(f => {
+        const parts = f.path.split('/');
+        let curr = root;
+        for (let i = 0; i < parts.length - 1; i++) {
+          const dirName = parts[i];
+          const dirPath = parts.slice(0, i + 1).join('/');
+          if (!curr.childrenDirs.has(dirName)) {
+            curr.childrenDirs.set(dirName, {
+              name: dirName,
+              path: dirPath,
+              childrenDirs: new Map(),
+              files: []
+            });
+          }
+          curr = curr.childrenDirs.get(dirName);
+        }
+        curr.files.push(f);
+      });
+
+      const existingExpanded = new Map();
+      if (this.treeNodes) {
+        for (const node of this.treeNodes) {
+          if (node.isFolder) existingExpanded.set(node.path, node.expanded);
+        }
+      }
+
+      const nodes = [];
+      function traverse(dir, depth) {
+        const dirNames = Array.from(dir.childrenDirs.keys()).sort();
+        for (const dName of dirNames) {
+          const childDir = dir.childrenDirs.get(dName);
+          const isExpanded = existingExpanded.has(childDir.path) ? existingExpanded.get(childDir.path) : true;
+          nodes.push({
+            id: 'dir:' + childDir.path,
+            name: childDir.name,
+            path: childDir.path,
+            isFolder: true,
+            depth: depth,
+            expanded: isExpanded
+          });
+          traverse(childDir, depth + 1);
+        }
+        dir.files.sort((a, b) => a.name.localeCompare(b.name));
+        for (const file of dir.files) {
+          nodes.push({
+            id: 'file:' + file.path,
+            name: file.name,
+            path: file.path,
+            isFolder: false,
+            depth: depth,
+            status: file.status,
+            addedLines: file.addedLines,
+            deletedLines: file.deletedLines
+          });
+        }
+      }
+
+      traverse(root, 0);
+      this.treeNodes = nodes;
+    },
+
+    get visibleTreeItems() {
+      if (!this.fileFilter) {
+        const collapsed = new Set(this.treeNodes.filter(n => n.isFolder && !n.expanded).map(n => n.path));
+        return this.treeNodes.filter(n => {
+          const parts = n.path.split('/');
+          let prefix = parts[0];
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (collapsed.has(prefix)) return false;
+            prefix += '/' + parts[i + 1];
+          }
+          return true;
+        });
+      }
+
+      const query = this.fileFilter.toLowerCase().trim();
+      const matchingFilePaths = new Set();
+      const neededDirPaths = new Set();
+
+      for (const n of this.treeNodes) {
+        if (!n.isFolder && n.path.toLowerCase().includes(query)) {
+          matchingFilePaths.add(n.path);
+          const parts = n.path.split('/');
+          let prefix = parts[0];
+          for (let i = 0; i < parts.length - 1; i++) {
+            neededDirPaths.add(prefix);
+            prefix += '/' + parts[i + 1];
+          }
+        }
+      }
+
+      return this.treeNodes.filter(n => {
+        if (n.isFolder) return neededDirPaths.has(n.path);
+        return matchingFilePaths.has(n.path);
+      });
+    },
+
+    toggleFolder(node) {
+      node.expanded = !node.expanded;
+    },
+
+    get allFoldersExpanded() {
+      const folders = this.treeNodes.filter(n => n.isFolder);
+      if (!folders.length) return true;
+      return folders.every(f => f.expanded);
+    },
+
+    toggleAllFolders() {
+      const target = !this.allFoldersExpanded;
+      this.treeNodes.forEach(n => {
+        if (n.isFolder) n.expanded = target;
+      });
+    },
+
+    scrollToFile(filePath) {
+      this.activeFile = filePath;
+      const target = document.querySelector(`[data-file-path="${CSS.escape(filePath)}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    },
+
+    setupScrollSpy() {
+      if (this.scrollObserver) {
+        this.scrollObserver.disconnect();
+      }
+      const wrappers = document.querySelectorAll('.d2h-file-wrapper');
+      if (!wrappers.length || typeof IntersectionObserver === 'undefined') return;
+
+      const callback = (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const filePath = entry.target.getAttribute('data-file-path');
+            if (filePath) {
+              this.activeFile = filePath;
+            }
+          }
+        }
+      };
+
+      this.scrollObserver = new IntersectionObserver(callback, {
+        rootMargin: '-70px 0px -70% 0px',
+        threshold: 0
+      });
+
+      wrappers.forEach(w => this.scrollObserver.observe(w));
+    },
+
+    getStatusLabel(status) {
+      switch (status) {
+        case 'A': return 'Added';
+        case 'D': return 'Deleted';
+        case 'R': return 'Renamed';
+        case 'M': return 'Modified';
+        default: return status;
+      }
+    },
+
+    getFileCommentsCount(filePath) {
+      if (!this.comments || !this.comments.length) return 0;
+      return this.comments.filter(c => c.filePath === filePath).length;
     },
 
     async loadStatus() {
@@ -107,6 +285,8 @@ function reviewApp() {
       if (!container) return;
 
       if (this.empty) {
+        this.filesList = [];
+        this.treeNodes = [];
         container.innerHTML = `
           <div class="empty-state">
             <h2>No changes detected</h2>
@@ -118,7 +298,7 @@ function reviewApp() {
 
       if (typeof Diff2HtmlUI !== 'undefined') {
         const diff2htmlUi = new Diff2HtmlUI(container, this.diffText, {
-          drawFileList: true,
+          drawFileList: false,
           matching: 'none',
           outputFormat: this.viewMode,
           highlight: true
@@ -126,15 +306,65 @@ function reviewApp() {
         diff2htmlUi.draw();
       } else if (typeof Diff2Html !== 'undefined') {
         const diffHtml = Diff2Html.html(this.diffText, {
-          drawFileList: true,
+          drawFileList: false,
           matching: 'none',
           outputFormat: this.viewMode
         });
         container.innerHTML = diffHtml;
       }
 
+      let parsedFiles = [];
+      if (typeof Diff2Html !== 'undefined' && typeof Diff2Html.parse === 'function') {
+        try {
+          parsedFiles = Diff2Html.parse(this.diffText);
+        } catch (e) {
+          console.error('Error parsing diff with Diff2Html:', e);
+        }
+      }
+
+      if (parsedFiles.length > 0) {
+        this.filesList = parsedFiles.map(f => {
+          const filePath = (f.newName && f.newName !== '/dev/null' && f.newName !== 'dev/null') ? f.newName : f.oldName;
+          let status = 'M';
+          if (f.isNew) status = 'A';
+          else if (f.isDeleted) status = 'D';
+          else if (f.isRename) status = 'R';
+          return {
+            path: filePath,
+            name: filePath.split('/').pop(),
+            status: status,
+            addedLines: f.addedLines || 0,
+            deletedLines: f.deletedLines || 0
+          };
+        });
+      } else {
+        const wrappers = container.querySelectorAll('.d2h-file-wrapper');
+        this.filesList = Array.from(wrappers).map(el => {
+          const nameEl = el.querySelector('.d2h-file-name');
+          const filePath = nameEl ? nameEl.textContent.trim() : 'unknown';
+          let status = 'M';
+          if (el.querySelector('.d2h-added-tag')) status = 'A';
+          else if (el.querySelector('.d2h-deleted-tag')) status = 'D';
+          else if (el.querySelector('.d2h-moved-tag')) status = 'R';
+          const added = el.querySelectorAll('.d2h-ins').length;
+          const deleted = el.querySelectorAll('.d2h-del').length;
+          return {
+            path: filePath,
+            name: filePath.split('/').pop(),
+            status: status,
+            addedLines: added,
+            deletedLines: deleted
+          };
+        });
+      }
+      this.buildTree();
+      if (!this.activeFile && this.filesList.length > 0) {
+        this.activeFile = this.filesList[0].path;
+      }
+
       this.attachLineListeners();
       this.renderExistingComments();
+      this.setupScrollSpy();
     },
 
     attachLineListeners() {
@@ -144,6 +374,9 @@ function reviewApp() {
         if (!fileNameEl) return;
         const filePath = fileNameEl.textContent.trim();
         if (!filePath) return;
+
+        fileEl.setAttribute('data-file-path', filePath);
+        fileEl.id = 'diff-file-' + encodeURIComponent(filePath);
 
         const lineNumbers = fileEl.querySelectorAll('.d2h-code-linenumber, .d2h-code-side-linenumber');
         lineNumbers.forEach(lineEl => {

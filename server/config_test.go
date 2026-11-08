@@ -16,13 +16,15 @@ func TestConfigLoadAndSave(t *testing.T) {
 	s := &Server{repoRoot: tempDir}
 
 	cfg := s.loadConfig()
-	if cfg.ViewMode != "line-by-line" || cfg.DiffMode != "all" {
-		t.Fatalf("Expected default config line-by-line/all, got %+v", cfg)
+	if cfg.ViewMode != "line-by-line" || cfg.DiffMode != "all" || cfg.SidebarOpen == nil || !*cfg.SidebarOpen {
+		t.Fatalf("Expected default config line-by-line/all with sidebar open, got %+v", cfg)
 	}
 
+	falseVal := false
 	newCfg := AppConfig{
-		ViewMode: "side-by-side",
-		DiffMode: "staged",
+		ViewMode:    "side-by-side",
+		DiffMode:    "staged",
+		SidebarOpen: &falseVal,
 	}
 	if err := s.saveConfig(newCfg); err != nil {
 		t.Fatalf("Failed to save config: %v", err)
@@ -34,7 +36,7 @@ func TestConfigLoadAndSave(t *testing.T) {
 	}
 
 	loaded := s.loadConfig()
-	if loaded.ViewMode != "side-by-side" || loaded.DiffMode != "staged" {
+	if loaded.ViewMode != "side-by-side" || loaded.DiffMode != "staged" || loaded.SidebarOpen == nil || *loaded.SidebarOpen != false {
 		t.Fatalf("Expected loaded config to match, got %+v", loaded)
 	}
 }
