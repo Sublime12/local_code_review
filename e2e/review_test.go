@@ -28,6 +28,12 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	readmePath := "../README.md"
+	originalReadme, readErr := os.ReadFile(readmePath)
+	if readErr == nil {
+		_ = os.WriteFile(readmePath, append(originalReadme, []byte("\n<!-- test-diff-marker -->\n")...), 0644)
+	}
+
 	var err error
 	pw, err = playwright.Run()
 	if err != nil {
@@ -48,6 +54,10 @@ func TestMain(m *testing.M) {
 
 	_ = browser.Close()
 	_ = pw.Stop()
+
+	if readErr == nil {
+		_ = os.WriteFile(readmePath, originalReadme, 0644)
+	}
 
 	_ = os.Remove("../.review.md")
 	_ = os.Remove("../.local-review.json")
