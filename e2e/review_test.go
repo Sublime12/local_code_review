@@ -932,6 +932,60 @@ func TestRefComparisonFlow(t *testing.T) {
 	}
 }
 
+func TestTreeAndDiffViewOrderConsistency(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	firstWrapper := page.Locator(".d2h-file-wrapper").First()
+	if err := firstWrapper.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("File wrapper not visible: %v", err)
+	}
+
+	treeFileOrder, err := page.Evaluate(`() => {
+		const app = window.Alpine && window.Alpine.$data ? window.Alpine.$data(document.querySelector('[x-data]')) : null;
+		if (!app || !app.treeNodes) return [];
+		return app.treeNodes.filter(n => !n.isFolder).map(n => n.path);
+	}`)
+	if err != nil {
+		t.Fatalf("Failed to get tree file order: %v", err)
+	}
+
+	domFileOrder, err := page.Evaluate(`() => {
+		return Array.from(document.querySelectorAll('.d2h-file-wrapper')).map(el => {
+			return el.getAttribute('data-file-path') || el.querySelector('.d2h-file-name')?.textContent?.trim() || '';
+		}).filter(Boolean);
+	}`)
+	if err != nil {
+		t.Fatalf("Failed to get DOM file order: %v", err)
+	}
+
+	treeList, ok1 := treeFileOrder.([]interface{})
+	domList, ok2 := domFileOrder.([]interface{})
+	if !ok1 || !ok2 {
+		t.Fatalf("Expected slices for file orders, got %T and %T", treeFileOrder, domFileOrder)
+	}
+
+	if len(treeList) == 0 {
+		t.Fatalf("Expected at least one file in tree")
+	}
+	if len(treeList) != len(domList) {
+		t.Fatalf("Mismatch in file count between tree (%d) and view (%d)", len(treeList), len(domList))
+	}
+
+	for i := range treeList {
+		if treeList[i] != domList[i] {
+			t.Errorf("Order mismatch at index %d: tree has %v, diff view has %v", i, treeList[i], domList[i])
+		}
+	}
+}
+
 func TestHunkExpandTopAndBottomButtons(t *testing.T) {
 	baseURL, cleanup := startServer(t)
 	defer cleanup()

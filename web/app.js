@@ -422,6 +422,7 @@ function reviewApp() {
         });
       }
       this.buildTree();
+      this.orderDiffWrappers();
       if (!this.activeFile && this.filesList.length > 0) {
         this.activeFile = this.filesList[0].path;
       }
@@ -430,6 +431,39 @@ function reviewApp() {
       this.attachHunkExpanders();
       this.renderExistingComments();
       this.setupScrollSpy();
+    },
+
+    orderDiffWrappers() {
+      const d2hWrapper = document.querySelector('.d2h-wrapper') || document.getElementById('diff-viewer');
+      if (!d2hWrapper) return;
+
+      const treeFilePaths = this.treeNodes.filter(n => !n.isFolder).map(n => n.path);
+      const wrappers = Array.from(d2hWrapper.querySelectorAll('.d2h-file-wrapper'));
+      if (!wrappers.length) return;
+
+      const wrapperMap = new Map();
+      wrappers.forEach(w => {
+        const nameEl = w.querySelector('.d2h-file-name');
+        const path = nameEl ? nameEl.textContent.trim() : '';
+        if (path) {
+          w.setAttribute('data-file-path', path);
+          w.id = 'diff-file-' + encodeURIComponent(path);
+          wrapperMap.set(path, w);
+        }
+      });
+
+      const parent = wrappers[0]?.parentNode;
+      if (!parent) return;
+
+      treeFilePaths.forEach(path => {
+        const w = wrapperMap.get(path);
+        if (w) {
+          parent.appendChild(w);
+        }
+      });
+
+      const fileMap = new Map(this.filesList.map(f => [f.path, f]));
+      this.filesList = treeFilePaths.map(p => fileMap.get(p)).filter(Boolean);
     },
 
     async getFileTotalLines(filePath) {
