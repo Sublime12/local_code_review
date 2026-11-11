@@ -82,11 +82,14 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fileLines := git.GetDiffFileLines(s.repoRoot, diffText)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"diff":    diffText,
-		"mode":    mode,
-		"ref":     ref,
-		"context": contextLines,
+		"diff":      diffText,
+		"mode":      mode,
+		"ref":       ref,
+		"context":   contextLines,
+		"fileLines": fileLines,
 	})
 }
 
@@ -95,6 +98,19 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
 
+	if filePath != "" && (startStr == "" || endStr == "") {
+		total, err := git.GetFileLineCount(s.repoRoot, filePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"file":       filePath,
+			"totalLines": total,
+		})
+		return
+	}
+
 	if filePath != "" && startStr != "" && endStr != "" {
 		startLine, err1 := strconv.Atoi(startStr)
 		endLine, err2 := strconv.Atoi(endStr)
@@ -102,16 +118,17 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid start or end line number"})
 			return
 		}
-		lines, err := git.GetLineRange(s.repoRoot, filePath, startLine, endLine)
+		lines, total, err := git.GetLineRange(s.repoRoot, filePath, startLine, endLine)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"file":    filePath,
-			"start":   startLine,
-			"end":     endLine,
-			"context": lines,
+			"file":       filePath,
+			"start":      startLine,
+			"end":        endLine,
+			"totalLines": total,
+			"context":    lines,
 		})
 		return
 	}

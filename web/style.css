@@ -805,16 +805,27 @@ del, .d2h-del-token {
   padding: 0 2px !important;
 }
 
+.hunk-expand-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  padding: 1px 0;
+}
+
 .hunk-expand-btn {
   background-color: var(--gh-surface-overlay);
   color: var(--gh-link);
   border: 1px solid var(--gh-border);
   border-radius: 4px;
-  font-size: 11px;
-  font-family: inherit;
-  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.3;
+  padding: 1px 5px;
   cursor: pointer;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.15s ease;
 }
 
@@ -822,6 +833,24 @@ del, .d2h-del-token {
   background-color: #1f6feb;
   color: #ffffff;
   border-color: #1f6feb;
+}
+
+.hunk-expand-btn.expand-single {
+  width: 100%;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.d2h-bottom-expander-row td {
+  background-color: var(--gh-surface) !important;
+  border-top: 1px dashed var(--gh-border);
+}
+
+.d2h-bottom-expander-row .d2h-code-line,
+.d2h-bottom-expander-row .d2h-code-side-line {
+  color: var(--gh-text-muted);
+  font-style: italic;
+  font-size: 0.8rem;
 }
 
 /* ==========================================================================

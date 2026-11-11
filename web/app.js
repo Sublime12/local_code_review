@@ -19,6 +19,7 @@ function reviewApp() {
     activeFile: '',
     filesList: [],
     treeNodes: [],
+    fileTotalLines: {},
     scrollObserver: null,
 
     async init() {
@@ -309,6 +310,7 @@ function reviewApp() {
         const res = await fetch(`/api/diff?mode=${this.diffMode}&context=${this.contextLines}${refParam}`);
         const data = await res.json();
         this.diffText = data.diff || '';
+        this.fileTotalLines = data.fileLines || {};
         this.empty = !this.diffText.trim();
         this.renderDiff();
       } catch (err) {
@@ -430,61 +432,265 @@ function reviewApp() {
       this.setupScrollSpy();
     },
 
-    attachHunkExpanders() {
+    async getFileTotalLines(filePath) {
+      if (this.fileTotalLines && typeof this.fileTotalLines[filePath] === 'number') {
+        return this.fileTotalLines[filePath];
+      }
+      try {
+        const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const count = data.totalLines || 0;
+          this.fileTotalLines = this.fileTotalLines || {};
+          this.fileTotalLines[filePath] = count;
+          return count;
+        }
+      } catch (err) {
+        console.error('Error fetching file total lines:', err);
+      }
+      return 0;
+    },
+
+    async attachHunkExpanders() {
+      const EXPAND_STEP = 6;
       const fileWrappers = document.querySelectorAll('.d2h-file-wrapper');
-      fileWrappers.forEach(fileEl => {
+
+      for (const fileEl of Array.from(fileWrappers)) {
         const fileNameEl = fileEl.querySelector('.d2h-file-name');
-        if (!fileNameEl) return;
+        if (!fileNameEl) continue;
         const filePath = fileNameEl.textContent.trim();
-        if (!filePath) return;
+        if (!filePath) continue;
 
-        const infoCells = fileEl.querySelectorAll('td.d2h-code-linenumber.d2h-info');
-        infoCells.forEach(gutterCell => {
-          const infoRow = gutterCell.closest('tr');
-          if (!infoRow) return;
-          const codeLineEl = infoRow.querySelector('.d2h-code-line');
-          if (!codeLineEl) return;
-          const headerText = codeLineEl.textContent.trim();
-          const match = headerText.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
-          if (!match) return;
+        const isSplit = !!fileEl.querySelector('.d2h-files-diff');
+        const totalLines = await this.getFileTotalLines(filePath);
 
-          let oldStart = parseInt(match[1], 10);
-          let oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
-          let newStart = parseInt(match[3], 10);
-          let newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;
-          const suffix = match[5] || '';
+        if (!isSplit) {
+          this.attachUnifiedHunkExpanders(fileEl, filePath, totalLines, EXPAND_STEP);
+        } else {
+          this.attachSplitHunkExpanders(fileEl, filePath, totalLines, EXPAND_STEP);
+        }
+      }
+    },
 
-          if (newStart <= 1) return;
+    attachUnifiedHunkExpanders(fileEl, filePath, totalLines, step) {
+      const tbody = fileEl.querySelector('table.d2h-diff-table tbody');
+      if (!tbody) return;
 
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'hunk-expand-btn';
-          btn.title = 'Expand hidden context lines';
-          btn.textContent = '↕ Expand';
-          gutterCell.innerHTML = '';
-          gutterCell.appendChild(btn);
+      const hunkRows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelector('td.d2h-code-linenumber.d2h-info'));
 
-          btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            let minNew = 1;
-            const prevRow = infoRow.previousElementSibling;
-            if (prevRow) {
-              const prevNum2 = prevRow.querySelector('.line-num2');
-              if (prevNum2 && prevNum2.textContent.trim()) {
-                const parsed = parseInt(prevNum2.textContent.trim(), 10);
-                if (!isNaN(parsed)) minNew = parsed + 1;
-              }
+      hunkRows.forEach((infoRow) => {
+        const gutterCell = infoRow.querySelector('td.d2h-code-linenumber.d2h-info');
+        const codeLineEl = infoRow.querySelector('.d2h-code-line');
+        if (!gutterCell || !codeLineEl) return;
+
+        const headerText = codeLineEl.textContent.trim();
+        const match = headerText.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+        if (!match) return;
+
+        let oldStart = parseInt(match[1], 10);
+        let oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
+        let newStart = parseInt(match[3], 10);
+        let newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;
+        const suffix = match[5] || '';
+
+        let prevNew = 0;
+        let prevOld = 0;
+        let hasAboveHunk = false;
+
+        const prevRow = infoRow.previousElementSibling;
+        if (prevRow) {
+          const num2El = prevRow.querySelector('.line-num2');
+          const num1El = prevRow.querySelector('.line-num1');
+          if (num2El && num2El.textContent.trim()) {
+            const p2 = parseInt(num2El.textContent.trim(), 10);
+            if (!isNaN(p2)) {
+              prevNew = p2;
+              hasAboveHunk = true;
             }
+          }
+          if (num1El && num1El.textContent.trim()) {
+            const p1 = parseInt(num1El.textContent.trim(), 10);
+            if (!isNaN(p1)) prevOld = p1;
+          }
+        }
 
-            const endNew = newStart - 1;
-            if (endNew < minNew) {
+        let gapStartNew = hasAboveHunk ? prevNew + 1 : 1;
+        let gapEndNew = newStart - 1;
+        let gapStartOld = hasAboveHunk ? (prevOld > 0 ? prevOld + 1 : 1) : 1;
+        let gapEndOld = oldStart - 1;
+
+        if (gapStartNew > gapEndNew) return;
+
+        gutterCell.innerHTML = '';
+        const actionsContainer = document.createElement('div');
+        actionsContainer.className = 'hunk-expand-actions';
+
+        let btnUp = null;
+        let btnDown = null;
+
+        if (hasAboveHunk) {
+          btnUp = document.createElement('button');
+          btnUp.type = 'button';
+          btnUp.className = 'hunk-expand-btn expand-up';
+          btnUp.title = 'Expand up (5-7 lines)';
+          btnUp.textContent = '▲';
+
+          btnDown = document.createElement('button');
+          btnDown.type = 'button';
+          btnDown.className = 'hunk-expand-btn expand-down';
+          btnDown.title = 'Expand down (5-7 lines)';
+          btnDown.textContent = '▼';
+
+          actionsContainer.appendChild(btnUp);
+          actionsContainer.appendChild(btnDown);
+        } else {
+          btnUp = document.createElement('button');
+          btnUp.type = 'button';
+          btnUp.className = 'hunk-expand-btn expand-single expand-up';
+          btnUp.title = 'Expand up (5-7 lines)';
+          btnUp.textContent = '▲';
+          actionsContainer.appendChild(btnUp);
+        }
+        gutterCell.appendChild(actionsContainer);
+
+        const expandUp = async () => {
+          if (gapStartNew > gapEndNew) return;
+          const count = Math.min(step, gapEndNew - gapStartNew + 1);
+          const startNew = gapEndNew - count + 1;
+          const endNew = gapEndNew;
+          const startOld = Math.max(1, gapEndOld - count + 1);
+
+          try {
+            const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const lines = data.context || [];
+            if (!lines.length) return;
+
+            const fragment = document.createDocumentFragment();
+            lines.forEach((item, idx) => {
+              const oldNum = startOld + idx;
+              const newNum = item.lineNumber;
+              const tr = this.createUnifiedContextRow(filePath, oldNum, newNum, item.content);
+              fragment.appendChild(tr);
+            });
+
+            infoRow.parentNode.insertBefore(fragment, infoRow.nextSibling);
+
+            gapEndNew = startNew - 1;
+            gapEndOld = startOld - 1;
+            newStart = startNew;
+            newCount += lines.length;
+            oldStart = startOld;
+            oldCount += lines.length;
+
+            if (gapStartNew > gapEndNew) {
               infoRow.remove();
-              return;
+            } else {
+              codeLineEl.textContent = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${suffix}`;
             }
+            this.renderExistingComments();
+          } catch (err) {
+            console.error('Error expanding up:', err);
+          }
+        };
 
-            const step = Math.min(20, endNew - minNew + 1);
-            const startNew = endNew - step + 1;
-            const startOld = Math.max(1, oldStart - step);
+        const expandDown = async () => {
+          if (gapStartNew > gapEndNew) return;
+          const count = Math.min(step, gapEndNew - gapStartNew + 1);
+          const startNew = gapStartNew;
+          const endNew = gapStartNew + count - 1;
+          const startOld = gapStartOld;
+
+          try {
+            const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const lines = data.context || [];
+            if (!lines.length) return;
+
+            const fragment = document.createDocumentFragment();
+            lines.forEach((item, idx) => {
+              const oldNum = startOld + idx;
+              const newNum = item.lineNumber;
+              const tr = this.createUnifiedContextRow(filePath, oldNum, newNum, item.content);
+              fragment.appendChild(tr);
+            });
+
+            infoRow.parentNode.insertBefore(fragment, infoRow);
+
+            gapStartNew = endNew + 1;
+            gapStartOld = startOld + lines.length;
+
+            if (gapStartNew > gapEndNew) {
+              infoRow.remove();
+            } else {
+              codeLineEl.textContent = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${suffix}`;
+            }
+            this.renderExistingComments();
+          } catch (err) {
+            console.error('Error expanding down:', err);
+          }
+        };
+
+        if (btnUp) {
+          btnUp.addEventListener('click', (e) => {
+            e.stopPropagation();
+            expandUp();
+          });
+        }
+        if (btnDown) {
+          btnDown.addEventListener('click', (e) => {
+            e.stopPropagation();
+            expandDown();
+          });
+        }
+      });
+
+      if (totalLines > 0) {
+        const rows = Array.from(tbody.querySelectorAll('tr')).filter(r => !r.classList.contains('inline-comment-row') && !r.classList.contains('inline-comment-spacer-row') && !r.classList.contains('d2h-bottom-expander-row'));
+        const lastRow = rows[rows.length - 1];
+        if (!lastRow) return;
+
+        let lastNew = 0;
+        let lastOld = 0;
+        const num2El = lastRow.querySelector('.line-num2');
+        const num1El = lastRow.querySelector('.line-num1');
+        if (num2El && num2El.textContent.trim()) {
+          const parsed = parseInt(num2El.textContent.trim(), 10);
+          if (!isNaN(parsed)) lastNew = parsed;
+        }
+        if (num1El && num1El.textContent.trim()) {
+          const parsed = parseInt(num1El.textContent.trim(), 10);
+          if (!isNaN(parsed)) lastOld = parsed;
+        }
+
+        if (lastNew > 0 && totalLines > lastNew) {
+          let bottomStartNew = lastNew + 1;
+          let bottomEndNew = totalLines;
+          let bottomStartOld = lastOld > 0 ? lastOld + 1 : bottomStartNew;
+
+          const bottomRow = document.createElement('tr');
+          bottomRow.className = 'd2h-bottom-expander-row';
+          bottomRow.innerHTML = `
+            <td class="d2h-code-linenumber d2h-info">
+              <div class="hunk-expand-actions">
+                <button type="button" class="hunk-expand-btn expand-single expand-down" title="Expand down (5-7 lines)">▼</button>
+              </div>
+            </td>
+            <td class="d2h-info">
+              <div class="d2h-code-line">...</div>
+            </td>
+          `;
+
+          const btnBottom = bottomRow.querySelector('.hunk-expand-btn');
+          btnBottom.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (bottomStartNew > bottomEndNew) return;
+            const count = Math.min(step, bottomEndNew - bottomStartNew + 1);
+            const startNew = bottomStartNew;
+            const endNew = bottomStartNew + count - 1;
+            const startOld = bottomStartOld;
 
             try {
               const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
@@ -495,48 +701,379 @@ function reviewApp() {
 
               const fragment = document.createDocumentFragment();
               lines.forEach((item, idx) => {
-                const tr = document.createElement('tr');
-                tr.className = 'd2h-cntx-expanded';
                 const oldNum = startOld + idx;
                 const newNum = item.lineNumber;
-                tr.innerHTML = `
-                  <td class="d2h-code-linenumber d2h-cntx" title="Click to add a review comment" style="cursor: pointer;">
-                    <div class="line-num1">${oldNum}</div>
-                    <div class="line-num2">${newNum}</div>
-                  </td>
-                  <td class="d2h-cntx">
-                    <div class="d2h-code-line">
-                      <span class="d2h-code-line-prefix">&nbsp;</span>
-                      <span class="d2h-code-line-ctn">${escapeHtml(item.content)}</span>
-                    </div>
-                  </td>
-                `;
-                const lineCell = tr.querySelector('.d2h-code-linenumber');
-                lineCell.addEventListener('click', (ev) => {
-                  ev.stopPropagation();
-                  this.showCommentInput(filePath, newNum, tr);
-                });
+                const tr = this.createUnifiedContextRow(filePath, oldNum, newNum, item.content);
                 fragment.appendChild(tr);
               });
 
-              infoRow.parentNode.insertBefore(fragment, infoRow.nextSibling);
+              bottomRow.parentNode.insertBefore(fragment, bottomRow);
 
-              newStart = startNew;
-              oldStart = startOld;
-              newCount += lines.length;
-              oldCount += lines.length;
+              bottomStartNew = endNew + 1;
+              bottomStartOld = startOld + lines.length;
 
-              if (startNew <= minNew) {
-                infoRow.remove();
-              } else {
-                codeLineEl.textContent = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${suffix}`;
+              if (bottomStartNew > bottomEndNew) {
+                bottomRow.remove();
               }
+              this.renderExistingComments();
             } catch (err) {
-              console.error('Error expanding hunk:', err);
+              console.error('Error expanding bottom:', err);
             }
           });
-        });
+
+          tbody.appendChild(bottomRow);
+        }
+      }
+    },
+
+    attachSplitHunkExpanders(fileEl, filePath, totalLines, step) {
+      const sideDiffs = fileEl.querySelectorAll('.d2h-file-side-diff');
+      if (sideDiffs.length < 2) return;
+      const leftTbody = sideDiffs[0].querySelector('tbody');
+      const rightTbody = sideDiffs[1].querySelector('tbody');
+      if (!leftTbody || !rightTbody) return;
+
+      const rightHunkRows = Array.from(rightTbody.querySelectorAll('tr')).filter(r => r.querySelector('td.d2h-code-side-linenumber.d2h-info'));
+
+      rightHunkRows.forEach((rightInfoRow) => {
+        const rightGutter = rightInfoRow.querySelector('td.d2h-code-side-linenumber.d2h-info');
+        const rowIndex = Array.from(rightTbody.children).indexOf(rightInfoRow);
+        const leftInfoRow = leftTbody.children[rowIndex];
+        if (!rightGutter || !leftInfoRow) return;
+
+        const leftCodeLine = leftInfoRow.querySelector('.d2h-code-side-line');
+        const headerText = leftCodeLine ? leftCodeLine.textContent.trim() : '';
+        const match = headerText.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+        if (!match) return;
+
+        let oldStart = parseInt(match[1], 10);
+        let oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
+        let newStart = parseInt(match[3], 10);
+        let newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;
+        const suffix = match[5] || '';
+
+        let prevNew = 0;
+        let prevOld = 0;
+        let hasAboveHunk = false;
+
+        const prevRightRow = rightInfoRow.previousElementSibling;
+        const prevLeftRow = leftInfoRow.previousElementSibling;
+        if (prevRightRow) {
+          const num2El = prevRightRow.querySelector('.d2h-code-side-linenumber');
+          if (num2El && num2El.textContent.trim()) {
+            const p2 = parseInt(num2El.textContent.trim(), 10);
+            if (!isNaN(p2)) {
+              prevNew = p2;
+              hasAboveHunk = true;
+            }
+          }
+        }
+        if (prevLeftRow) {
+          const num1El = prevLeftRow.querySelector('.d2h-code-side-linenumber');
+          if (num1El && num1El.textContent.trim()) {
+            const p1 = parseInt(num1El.textContent.trim(), 10);
+            if (!isNaN(p1)) prevOld = p1;
+          }
+        }
+
+        let gapStartNew = hasAboveHunk ? prevNew + 1 : 1;
+        let gapEndNew = newStart - 1;
+        let gapStartOld = hasAboveHunk ? (prevOld > 0 ? prevOld + 1 : 1) : 1;
+        let gapEndOld = oldStart - 1;
+
+        if (gapStartNew > gapEndNew) return;
+
+        rightGutter.innerHTML = '';
+        const actionsContainer = document.createElement('div');
+        actionsContainer.className = 'hunk-expand-actions';
+
+        let btnUp = null;
+        let btnDown = null;
+
+        if (hasAboveHunk) {
+          btnUp = document.createElement('button');
+          btnUp.type = 'button';
+          btnUp.className = 'hunk-expand-btn expand-up';
+          btnUp.title = 'Expand up (5-7 lines)';
+          btnUp.textContent = '▲';
+
+          btnDown = document.createElement('button');
+          btnDown.type = 'button';
+          btnDown.className = 'hunk-expand-btn expand-down';
+          btnDown.title = 'Expand down (5-7 lines)';
+          btnDown.textContent = '▼';
+
+          actionsContainer.appendChild(btnUp);
+          actionsContainer.appendChild(btnDown);
+        } else {
+          btnUp = document.createElement('button');
+          btnUp.type = 'button';
+          btnUp.className = 'hunk-expand-btn expand-single expand-up';
+          btnUp.title = 'Expand up (5-7 lines)';
+          btnUp.textContent = '▲';
+          actionsContainer.appendChild(btnUp);
+        }
+        rightGutter.appendChild(actionsContainer);
+
+        const expandUp = async () => {
+          if (gapStartNew > gapEndNew) return;
+          const count = Math.min(step, gapEndNew - gapStartNew + 1);
+          const startNew = gapEndNew - count + 1;
+          const endNew = gapEndNew;
+          const startOld = Math.max(1, gapEndOld - count + 1);
+
+          try {
+            const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const lines = data.context || [];
+            if (!lines.length) return;
+
+            const leftFrag = document.createDocumentFragment();
+            const rightFrag = document.createDocumentFragment();
+
+            lines.forEach((item, idx) => {
+              const oldNum = startOld + idx;
+              const newNum = item.lineNumber;
+              const { leftTr, rightTr } = this.createSplitContextRows(filePath, oldNum, newNum, item.content);
+              leftFrag.appendChild(leftTr);
+              rightFrag.appendChild(rightTr);
+            });
+
+            leftInfoRow.parentNode.insertBefore(leftFrag, leftInfoRow.nextSibling);
+            rightInfoRow.parentNode.insertBefore(rightFrag, rightInfoRow.nextSibling);
+
+            gapEndNew = startNew - 1;
+            gapEndOld = startOld - 1;
+            newStart = startNew;
+            newCount += lines.length;
+            oldStart = startOld;
+            oldCount += lines.length;
+
+            if (gapStartNew > gapEndNew) {
+              leftInfoRow.remove();
+              rightInfoRow.remove();
+            } else if (leftCodeLine) {
+              leftCodeLine.textContent = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${suffix}`;
+            }
+            this.renderExistingComments();
+          } catch (err) {
+            console.error('Error expanding up in split view:', err);
+          }
+        };
+
+        const expandDown = async () => {
+          if (gapStartNew > gapEndNew) return;
+          const count = Math.min(step, gapEndNew - gapStartNew + 1);
+          const startNew = gapStartNew;
+          const endNew = gapStartNew + count - 1;
+          const startOld = gapStartOld;
+
+          try {
+            const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const lines = data.context || [];
+            if (!lines.length) return;
+
+            const leftFrag = document.createDocumentFragment();
+            const rightFrag = document.createDocumentFragment();
+
+            lines.forEach((item, idx) => {
+              const oldNum = startOld + idx;
+              const newNum = item.lineNumber;
+              const { leftTr, rightTr } = this.createSplitContextRows(filePath, oldNum, newNum, item.content);
+              leftFrag.appendChild(leftTr);
+              rightFrag.appendChild(rightTr);
+            });
+
+            leftInfoRow.parentNode.insertBefore(leftFrag, leftInfoRow);
+            rightInfoRow.parentNode.insertBefore(rightFrag, rightInfoRow);
+
+            gapStartNew = endNew + 1;
+            gapStartOld = startOld + lines.length;
+
+            if (gapStartNew > gapEndNew) {
+              leftInfoRow.remove();
+              rightInfoRow.remove();
+            } else if (leftCodeLine) {
+              leftCodeLine.textContent = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${suffix}`;
+            }
+            this.renderExistingComments();
+          } catch (err) {
+            console.error('Error expanding down in split view:', err);
+          }
+        };
+
+        if (btnUp) {
+          btnUp.addEventListener('click', (e) => {
+            e.stopPropagation();
+            expandUp();
+          });
+        }
+        if (btnDown) {
+          btnDown.addEventListener('click', (e) => {
+            e.stopPropagation();
+            expandDown();
+          });
+        }
       });
+
+      if (totalLines > 0) {
+        const rightRows = Array.from(rightTbody.querySelectorAll('tr')).filter(r => !r.classList.contains('inline-comment-row') && !r.classList.contains('inline-comment-spacer-row') && !r.classList.contains('d2h-bottom-expander-row'));
+        const leftRows = Array.from(leftTbody.querySelectorAll('tr')).filter(r => !r.classList.contains('inline-comment-row') && !r.classList.contains('inline-comment-spacer-row') && !r.classList.contains('d2h-bottom-expander-row'));
+        const lastRightRow = rightRows[rightRows.length - 1];
+        const lastLeftRow = leftRows[leftRows.length - 1];
+        if (!lastRightRow || !lastLeftRow) return;
+
+        let lastNew = 0;
+        let lastOld = 0;
+        const num2El = lastRightRow.querySelector('.d2h-code-side-linenumber');
+        const num1El = lastLeftRow.querySelector('.d2h-code-side-linenumber');
+        if (num2El && num2El.textContent.trim()) {
+          const parsed = parseInt(num2El.textContent.trim(), 10);
+          if (!isNaN(parsed)) lastNew = parsed;
+        }
+        if (num1El && num1El.textContent.trim()) {
+          const parsed = parseInt(num1El.textContent.trim(), 10);
+          if (!isNaN(parsed)) lastOld = parsed;
+        }
+
+        if (lastNew > 0 && totalLines > lastNew) {
+          let bottomStartNew = lastNew + 1;
+          let bottomEndNew = totalLines;
+          let bottomStartOld = lastOld > 0 ? lastOld + 1 : bottomStartNew;
+
+          const leftBottomRow = document.createElement('tr');
+          leftBottomRow.className = 'd2h-bottom-expander-row';
+          leftBottomRow.innerHTML = `
+            <td class="d2h-code-side-linenumber d2h-info"></td>
+            <td class="d2h-info"><div class="d2h-code-side-line">&nbsp;</div></td>
+          `;
+
+          const rightBottomRow = document.createElement('tr');
+          rightBottomRow.className = 'd2h-bottom-expander-row';
+          rightBottomRow.innerHTML = `
+            <td class="d2h-code-side-linenumber d2h-info">
+              <div class="hunk-expand-actions">
+                <button type="button" class="hunk-expand-btn expand-single expand-down" title="Expand down (5-7 lines)">▼</button>
+              </div>
+            </td>
+            <td class="d2h-info">
+              <div class="d2h-code-side-line">...</div>
+            </td>
+          `;
+
+          const btnBottom = rightBottomRow.querySelector('.hunk-expand-btn');
+          btnBottom.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (bottomStartNew > bottomEndNew) return;
+            const count = Math.min(step, bottomEndNew - bottomStartNew + 1);
+            const startNew = bottomStartNew;
+            const endNew = bottomStartNew + count - 1;
+            const startOld = bottomStartOld;
+
+            try {
+              const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
+              if (!res.ok) return;
+              const data = await res.json();
+              const lines = data.context || [];
+              if (!lines.length) return;
+
+              const leftFrag = document.createDocumentFragment();
+              const rightFrag = document.createDocumentFragment();
+
+              lines.forEach((item, idx) => {
+                const oldNum = startOld + idx;
+                const newNum = item.lineNumber;
+                const { leftTr, rightTr } = this.createSplitContextRows(filePath, oldNum, newNum, item.content);
+                leftFrag.appendChild(leftTr);
+                rightFrag.appendChild(rightTr);
+              });
+
+              leftBottomRow.parentNode.insertBefore(leftFrag, leftBottomRow);
+              rightBottomRow.parentNode.insertBefore(rightFrag, rightBottomRow);
+
+              bottomStartNew = endNew + 1;
+              bottomStartOld = startOld + lines.length;
+
+              if (bottomStartNew > bottomEndNew) {
+                leftBottomRow.remove();
+                rightBottomRow.remove();
+              }
+              this.renderExistingComments();
+            } catch (err) {
+              console.error('Error expanding bottom in split view:', err);
+            }
+          });
+
+          leftTbody.appendChild(leftBottomRow);
+          rightTbody.appendChild(rightBottomRow);
+        }
+      }
+    },
+
+    createUnifiedContextRow(filePath, oldNum, newNum, content) {
+      const tr = document.createElement('tr');
+      tr.className = 'd2h-cntx-expanded';
+      tr.innerHTML = `
+        <td class="d2h-code-linenumber d2h-cntx" title="Click to add a review comment" style="cursor: pointer;">
+          <div class="line-num1">${oldNum > 0 ? oldNum : ''}</div>
+          <div class="line-num2">${newNum > 0 ? newNum : ''}</div>
+        </td>
+        <td class="d2h-cntx">
+          <div class="d2h-code-line">
+            <span class="d2h-code-line-prefix">&nbsp;</span>
+            <span class="d2h-code-line-ctn">${escapeHtml(content)}</span>
+          </div>
+        </td>
+      `;
+      const lineCell = tr.querySelector('.d2h-code-linenumber');
+      lineCell.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.showCommentInput(filePath, newNum, tr);
+      });
+      return tr;
+    },
+
+    createSplitContextRows(filePath, oldNum, newNum, content) {
+      const leftTr = document.createElement('tr');
+      leftTr.className = 'd2h-cntx-expanded';
+      leftTr.innerHTML = `
+        <td class="d2h-code-side-linenumber d2h-cntx" title="Click to add a review comment" style="cursor: pointer;">${oldNum > 0 ? oldNum : ''}</td>
+        <td class="d2h-cntx">
+          <div class="d2h-code-side-line">
+            <span class="d2h-code-line-prefix">&nbsp;</span>
+            <span class="d2h-code-line-ctn">${escapeHtml(content)}</span>
+          </div>
+        </td>
+      `;
+
+      const rightTr = document.createElement('tr');
+      rightTr.className = 'd2h-cntx-expanded';
+      rightTr.innerHTML = `
+        <td class="d2h-code-side-linenumber d2h-cntx" title="Click to add a review comment" style="cursor: pointer;">${newNum > 0 ? newNum : ''}</td>
+        <td class="d2h-cntx">
+          <div class="d2h-code-side-line">
+            <span class="d2h-code-line-prefix">&nbsp;</span>
+            <span class="d2h-code-line-ctn">${escapeHtml(content)}</span>
+          </div>
+        </td>
+      `;
+
+      const leftCell = leftTr.querySelector('.d2h-code-side-linenumber');
+      leftCell.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.showCommentInput(filePath, newNum, leftTr);
+      });
+
+      const rightCell = rightTr.querySelector('.d2h-code-side-linenumber');
+      rightCell.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.showCommentInput(filePath, newNum, rightTr);
+      });
+
+      return { leftTr, rightTr };
     },
 
     attachLineListeners() {

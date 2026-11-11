@@ -177,11 +177,11 @@ func GetLineContext(repoRoot, filePath string, targetLine int, radius int) ([]Co
 	return result, nil
 }
 
-func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine, error) {
+func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine, int, error) {
 	fullPath := filepath.Join(repoRoot, filePath)
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer file.Close()
 
@@ -191,12 +191,12 @@ func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine
 		allLines = append(allLines, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	total := len(allLines)
 	if total == 0 {
-		return []CodeLine{}, nil
+		return []CodeLine{}, 0, nil
 	}
 
 	if startLine < 1 {
@@ -206,7 +206,7 @@ func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine
 		endLine = total
 	}
 	if startLine > endLine {
-		return []CodeLine{}, nil
+		return []CodeLine{}, total, nil
 	}
 
 	var result []CodeLine
@@ -217,5 +217,38 @@ func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine
 		})
 	}
 
-	return result, nil
+	return result, total, nil
+}
+
+func GetFileLineCount(repoRoot, filePath string) (int, error) {
+	fullPath := filepath.Join(repoRoot, filePath)
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	count := 0
+	for scanner.Scan() {
+		count++
+	}
+	return count, scanner.Err()
+}
+
+func GetDiffFileLines(repoRoot, diffText string) map[string]int {
+	result := make(map[string]int)
+	scanner := bufio.NewScanner(strings.NewReader(diffText))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "+++ b/") {
+			p := strings.TrimPrefix(line, "+++ b/")
+			if p != "/dev/null" && p != "dev/null" && p != "" {
+				if count, err := GetFileLineCount(repoRoot, p); err == nil {
+					result[p] = count
+				}
+			}
+		}
+	}
+	return result
 }

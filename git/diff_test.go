@@ -72,11 +72,28 @@ line 10`
 		t.Errorf("Expected target line to be line 10, got: %+v", linesEnd[2])
 	}
 
-	rangeLines, err := GetLineRange(tempDir, testFile, 2, 6)
+	rangeLines, totalLines, err := GetLineRange(tempDir, testFile, 2, 6)
 	if err != nil {
 		t.Fatalf("GetLineRange failed: %v", err)
 	}
+	if totalLines != 10 {
+		t.Errorf("Expected total lines 10, got %d", totalLines)
+	}
 	if len(rangeLines) != 5 || rangeLines[0].LineNumber != 2 || rangeLines[4].LineNumber != 6 {
 		t.Errorf("Unexpected rangeLines: %+v", rangeLines)
+	}
+
+	count, err := GetFileLineCount(tempDir, testFile)
+	if err != nil {
+		t.Fatalf("GetFileLineCount failed: %v", err)
+	}
+	if count != 10 {
+		t.Errorf("Expected file line count 10, got %d", count)
+	}
+
+	diffSample := "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n"
+	diffCounts := GetDiffFileLines(tempDir, diffSample)
+	if diffCounts["test.txt"] != 10 {
+		t.Errorf("Expected diff file lines for test.txt to be 10, got %d", diffCounts["test.txt"])
 	}
 }

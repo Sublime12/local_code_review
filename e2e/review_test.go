@@ -931,3 +931,47 @@ func TestRefComparisonFlow(t *testing.T) {
 		t.Errorf("Expected updated ref badge to contain 'HEAD~2', got %q", updatedBadge)
 	}
 }
+
+func TestHunkExpandTopAndBottomButtons(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	firstBtn := page.Locator(".hunk-expand-btn").First()
+	if err := firstBtn.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("No hunk expand buttons found: %v", err)
+	}
+
+	initialExpandedCount, _ := page.Locator("tr.d2h-cntx-expanded").Count()
+
+	if err := firstBtn.Click(); err != nil {
+		t.Fatalf("Failed to click first hunk expand button: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	afterClickExpandedCount, _ := page.Locator("tr.d2h-cntx-expanded").Count()
+	if afterClickExpandedCount <= initialExpandedCount {
+		t.Fatalf("Expected expanded rows to increase after clicking expand button (before=%d, after=%d)", initialExpandedCount, afterClickExpandedCount)
+	}
+
+	bottomExpander := page.Locator(".d2h-bottom-expander-row .hunk-expand-btn").First()
+	bottomCount, _ := bottomExpander.Count()
+	if bottomCount > 0 {
+		prevTotal, _ := page.Locator("tr.d2h-cntx-expanded").Count()
+		if err := bottomExpander.Click(); err != nil {
+			t.Fatalf("Failed to click bottom expander button: %v", err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		newTotal, _ := page.Locator("tr.d2h-cntx-expanded").Count()
+		if newTotal <= prevTotal {
+			t.Fatalf("Expected bottom expansion to add expanded rows (prev=%d, new=%d)", prevTotal, newTotal)
+		}
+	}
+}
