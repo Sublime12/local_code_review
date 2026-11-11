@@ -18,10 +18,25 @@ function reviewApp() {
     scrollObserver: null,
 
     async init() {
+      this.setupHeaderObserver();
       await this.loadConfig();
       await this.loadStatus();
       await this.loadComments();
       await this.loadDiff();
+    },
+
+    setupHeaderObserver() {
+      const header = document.querySelector('.top-header');
+      if (!header) return;
+      const updateHeight = () => {
+        const h = header.getBoundingClientRect().height || header.offsetHeight;
+        document.documentElement.style.setProperty('--top-header-height', `${h}px`);
+      };
+      updateHeight();
+      if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(updateHeight);
+        ro.observe(header);
+      }
     },
 
     showToast(message) {

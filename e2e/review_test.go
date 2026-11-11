@@ -691,3 +691,53 @@ func toFloat64(v interface{}) float64 {
 		return 0
 	}
 }
+
+func TestStickyFileHeader(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	fileHeader := page.Locator(".d2h-file-header").First()
+	if err := fileHeader.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("File header not visible: %v", err)
+	}
+
+	res, err := page.Evaluate(`() => {
+		const wrapper = document.querySelector('.d2h-file-wrapper');
+		const header = wrapper.querySelector('.d2h-file-header');
+		const topHeader = document.querySelector('.top-header');
+		wrapper.style.minHeight = '2000px';
+		document.body.style.minHeight = '3000px';
+		window.scrollTo(0, 400);
+		const headerStyle = window.getComputedStyle(header);
+		const wrapperStyle = window.getComputedStyle(wrapper);
+		const headerRect = header.getBoundingClientRect();
+		const topHeaderRect = topHeader.getBoundingClientRect();
+		return {
+			position: headerStyle.position,
+			wrapperOverflow: wrapperStyle.overflow,
+			headerTop: headerRect.top,
+			topHeaderBottom: topHeaderRect.bottom
+		};
+	}`)
+	if err != nil {
+		t.Fatalf("Failed to evaluate sticky file header: %v", err)
+	}
+
+	data := res.(map[string]interface{})
+	if data["position"] != "sticky" {
+		t.Errorf("Expected .d2h-file-header position 'sticky', got %v", data["position"])
+	}
+	headerTop := toFloat64(data["headerTop"])
+	topHeaderBottom := toFloat64(data["topHeaderBottom"])
+	diff := headerTop - topHeaderBottom
+	if diff < -1 || diff > 1 {
+		t.Errorf("Expected sticky file header top (%v) to match top-header bottom (%v) when scrolled", headerTop, topHeaderBottom)
+	}
+}

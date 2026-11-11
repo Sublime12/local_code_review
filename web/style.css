@@ -189,9 +189,9 @@ body {
   border-right: 1px solid var(--gh-border);
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 57px);
+  height: calc(100vh - var(--top-header-height, 57px));
   position: sticky;
-  top: 57px;
+  top: var(--top-header-height, 57px);
   z-index: 50;
   overflow: hidden;
 }
@@ -498,19 +498,33 @@ body {
   border: 1px solid var(--gh-border) !important;
   border-radius: 6px !important;
   margin-bottom: 24px !important;
-  overflow: hidden;
-  scroll-margin-top: 70px;
+  overflow: visible !important;
+  scroll-margin-top: calc(var(--top-header-height, 57px) + 12px);
 }
 
 /* File Header */
 .d2h-file-header {
+  position: sticky !important;
+  top: var(--top-header-height, 57px) !important;
+  z-index: 30 !important;
+  height: auto !important;
   background-color: var(--gh-surface) !important;
   border-bottom: 1px solid var(--gh-border) !important;
+  border-top-left-radius: 6px !important;
+  border-top-right-radius: 6px !important;
   padding: 10px 16px !important;
   display: flex;
   align-items: center;
   justify-content: space-between;
   color: var(--gh-text) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.d2h-file-diff {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
 
 .d2h-file-name-wrapper {
