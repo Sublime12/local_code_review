@@ -10,19 +10,23 @@ import (
 	"github.com/Sublime12/local_code_review/git"
 )
 
-// Server coordinates HTTP routing, API endpoints, and embedded web assets
 type Server struct {
-	repoRoot string
-	store    *CommentStore
-	webFS    embed.FS
+	repoRoot   string
+	defaultRef string
+	store      *CommentStore
+	webFS      embed.FS
 }
 
-// NewServer creates a new Server instance
-func NewServer(repoRoot string, webFS embed.FS) *Server {
+func NewServer(repoRoot string, webFS embed.FS, defaultRef ...string) *Server {
+	ref := ""
+	if len(defaultRef) > 0 {
+		ref = defaultRef[0]
+	}
 	return &Server{
-		repoRoot: repoRoot,
-		store:    NewCommentStore(),
-		webFS:    webFS,
+		repoRoot:   repoRoot,
+		defaultRef: ref,
+		store:      NewCommentStore(),
+		webFS:      webFS,
 	}
 }
 
@@ -52,12 +56,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"repoRoot": s.repoRoot,
 		"branch":   branch,
+		"ref":      s.defaultRef,
 	})
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	mode := r.URL.Query().Get("mode")
 	ref := r.URL.Query().Get("ref")
+	if ref == "" && !r.URL.Query().Has("ref") {
+		ref = s.defaultRef
+	}
 	contextStr := r.URL.Query().Get("context")
 
 	contextLines := 3

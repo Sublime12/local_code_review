@@ -65,7 +65,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func startServer(t *testing.T) (string, func()) {
+func startServer(t *testing.T, extraArgs ...string) (string, func()) {
 	t.Helper()
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -80,7 +80,8 @@ func startServer(t *testing.T) (string, func()) {
 		t.Fatalf("Failed to get repo root: %v", err)
 	}
 
-	cmd := exec.Command("./local-review", "-no-browser", "-port", strconv.Itoa(port))
+	args := append([]string{"-no-browser", "-port", strconv.Itoa(port)}, extraArgs...)
+	cmd := exec.Command("./local-review", args...)
 	cmd.Dir = repoRoot
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start local-review server: %v", err)
@@ -878,5 +879,49 @@ func TestExpandDiffContext(t *testing.T) {
 	selectedVal, err := page.Locator("select.context-select").InputValue()
 	if err != nil || selectedVal != "25" {
 		t.Fatalf("Expected persisted contextLines '25' after reload, got %q (err: %v)", selectedVal, err)
+	}
+}
+
+func TestRefComparisonFlow(t *testing.T) {
+	baseURL, cleanup := startServer(t, "-ref", "HEAD~1")
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	refBadge := page.Locator(".ref-badge")
+	if err := refBadge.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Ref badge not visible when started with -ref HEAD~1: %v", err)
+	}
+	badgeText, _ := refBadge.TextContent()
+	if !strings.Contains(badgeText, "HEAD~1") {
+		t.Errorf("Expected ref badge to contain 'HEAD~1', got %q", badgeText)
+	}
+
+	refInput := page.Locator("input.ref-input")
+	inputVal, err := refInput.InputValue()
+	if err != nil || inputVal != "HEAD~1" {
+		t.Errorf("Expected ref-input value 'HEAD~1', got %q (err: %v)", inputVal, err)
+	}
+
+	if err := page.Locator(".d2h-file-wrapper").First().WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Expected diff files when comparing against HEAD~1: %v", err)
+	}
+
+	if err := refInput.Fill("HEAD~2"); err != nil {
+		t.Fatalf("Failed to fill ref-input: %v", err)
+	}
+	if err := refInput.Press("Enter"); err != nil {
+		t.Fatalf("Failed to press Enter on ref-input: %v", err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+	updatedBadge, _ := refBadge.TextContent()
+	if !strings.Contains(updatedBadge, "HEAD~2") {
+		t.Errorf("Expected updated ref badge to contain 'HEAD~2', got %q", updatedBadge)
 	}
 }

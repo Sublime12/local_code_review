@@ -2,6 +2,7 @@ function reviewApp() {
   return {
     branch: 'HEAD',
     repoRoot: '',
+    ref: '',
     diffMode: 'all',
     viewMode: 'line-by-line',
     contextLines: 3,
@@ -284,6 +285,9 @@ function reviewApp() {
         const data = await res.json();
         this.branch = data.branch || 'HEAD';
         this.repoRoot = data.repoRoot || '';
+        if (data.ref) {
+          this.ref = data.ref;
+        }
       } catch (err) {
         console.error('Error fetching status:', err);
       }
@@ -301,7 +305,8 @@ function reviewApp() {
     async loadDiff() {
       this.loading = true;
       try {
-        const res = await fetch(`/api/diff?mode=${this.diffMode}&context=${this.contextLines}`);
+        const refParam = this.ref ? `&ref=${encodeURIComponent(this.ref.trim())}` : '&ref=';
+        const res = await fetch(`/api/diff?mode=${this.diffMode}&context=${this.contextLines}${refParam}`);
         const data = await res.json();
         this.diffText = data.diff || '';
         this.empty = !this.diffText.trim();
@@ -312,6 +317,11 @@ function reviewApp() {
       } finally {
         this.loading = false;
       }
+    },
+
+    applyRef() {
+      this.ref = this.ref.trim();
+      this.loadDiff();
     },
 
     switchView(mode) {

@@ -38,8 +38,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	_ = refFlag
-
 	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -54,7 +52,7 @@ func main() {
 	assignedPort := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://localhost:%d", assignedPort)
 
-	srv := server.NewServer(repoRoot, webAssets)
+	srv := server.NewServer(repoRoot, webAssets, *refFlag)
 	httpServer := &http.Server{
 		Handler: srv.Handler(),
 	}
@@ -68,6 +66,9 @@ func main() {
 	fmt.Println("=======================================================")
 	fmt.Println(" Local Code Review")
 	fmt.Printf(" Repository: %s\n", repoRoot)
+	if *refFlag != "" {
+		fmt.Printf(" Comparing against ref: %s\n", *refFlag)
+	}
 	fmt.Printf(" Server running at: %s\n", url)
 	fmt.Println(" Press Ctrl+C to stop the review server")
 	fmt.Println("=======================================================")

@@ -38,7 +38,7 @@ func (s *Server) loadConfig() AppConfig {
 	if cfg.ViewMode != "side-by-side" && cfg.ViewMode != "line-by-line" {
 		cfg.ViewMode = "line-by-line"
 	}
-	if cfg.DiffMode != "all" && cfg.DiffMode != "unstaged" && cfg.DiffMode != "staged" {
+	if cfg.DiffMode != "all" && cfg.DiffMode != "unstaged" && cfg.DiffMode != "staged" && cfg.DiffMode != "branch" {
 		cfg.DiffMode = "all"
 	}
 	if cfg.SidebarOpen == nil {
@@ -58,7 +58,7 @@ func (s *Server) saveConfig(cfg AppConfig) error {
 	if cfg.ViewMode != "side-by-side" && cfg.ViewMode != "line-by-line" {
 		cfg.ViewMode = "line-by-line"
 	}
-	if cfg.DiffMode != "all" && cfg.DiffMode != "unstaged" && cfg.DiffMode != "staged" {
+	if cfg.DiffMode != "all" && cfg.DiffMode != "unstaged" && cfg.DiffMode != "staged" && cfg.DiffMode != "branch" {
 		cfg.DiffMode = "all"
 	}
 	if cfg.SidebarOpen == nil {

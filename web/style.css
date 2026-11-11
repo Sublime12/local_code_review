@@ -89,6 +89,17 @@ body {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
+.ref-badge {
+  border-color: var(--gh-link);
+  color: var(--gh-link);
+}
+
+.ref-input {
+  width: 145px;
+  cursor: text;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
 .header-controls {
   display: flex;
   align-items: center;
