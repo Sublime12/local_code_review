@@ -7,21 +7,21 @@ review: main.go git/*.go server/*.go web/*
 
 build: review
 
-review-e2e: cmd/review-e2e/main.go e2e/*.go
-	go build -o review-e2e ./cmd/review-e2e
+review-e2e: e2e/*.go git/*.go server/*.go web/*
+	go test -c -o review-e2e ./e2e
 
 build-e2e: review-e2e
 
 test:
 	go test ./git ./server -v
 
-test-e2e:
-	go test -v ./e2e/...
+test-e2e: review-e2e
+	./review-e2e -test.v
 
 e2e: test-e2e
 
 clean:
-	rm -f local-review review-e2e .review.md
+	rm -f review review-e2e .review.md
 
 help:
 	@echo "Local Code Review - Makefile targets:"

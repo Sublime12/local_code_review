@@ -1,4 +1,5 @@
 # Binaries
+/review
 /local-review
 /review-e2e
 *.exe

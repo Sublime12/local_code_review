@@ -43,10 +43,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config", s.handleConfig)
 
 	subFS, err := fs.Sub(s.webFS, "web")
-	if err == nil {
-		fileServer := http.FileServer(http.FS(subFS))
-		mux.Handle("/", fileServer)
+	if err != nil {
+		subFS = s.webFS
+	} else if _, statErr := fs.Stat(subFS, "index.html"); statErr != nil {
+		subFS = s.webFS
 	}
+	fileServer := http.FileServer(http.FS(subFS))
+	mux.Handle("/", fileServer)
 
 	return mux
 }

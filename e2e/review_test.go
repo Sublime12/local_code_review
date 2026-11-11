@@ -6,35 +6,41 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Sublime12/local_code_review/git"
+	"github.com/Sublime12/local_code_review/server"
+	"github.com/Sublime12/local_code_review/web"
 	"github.com/mxschmitt/playwright-go"
 )
 
 var (
-	pw      *playwright.Playwright
-	browser playwright.Browser
+	pw           *playwright.Playwright
+	browser      playwright.Browser
+	testRepoRoot string
 )
 
 func TestMain(m *testing.M) {
-	buildCmd := exec.Command("go", "build", "-o", "../local-review", "../main.go")
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to build local-review: %v\nOutput: %s\n", err, string(out))
+	var err error
+	testRepoRoot, err = git.GetRepoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to find git repo root: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Chdir(testRepoRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to chdir to repo root: %v\n", err)
 		os.Exit(1)
 	}
 
-	readmePath := "../README.md"
+	readmePath := filepath.Join(testRepoRoot, "README.md")
 	originalReadme, readErr := os.ReadFile(readmePath)
 	if readErr == nil {
 		_ = os.WriteFile(readmePath, append(originalReadme, []byte("\n<!-- test-diff-marker -->\n")...), 0644)
 	}
 
-	var err error
 	pw, err = playwright.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start Playwright: %v\n", err)
@@ -59,8 +65,8 @@ func TestMain(m *testing.M) {
 		_ = os.WriteFile(readmePath, originalReadme, 0644)
 	}
 
-	_ = os.Remove("../.review.md")
-	_ = os.Remove("../.local-review.json")
+	_ = os.Remove(filepath.Join(testRepoRoot, ".review.md"))
+	_ = os.Remove(filepath.Join(testRepoRoot, ".local-review.json"))
 
 	os.Exit(code)
 }
@@ -68,46 +74,32 @@ func TestMain(m *testing.M) {
 func startServer(t *testing.T, extraArgs ...string) (string, func()) {
 	t.Helper()
 
+	defaultRef := ""
+	for i := 0; i < len(extraArgs)-1; i++ {
+		if extraArgs[i] == "-ref" {
+			defaultRef = extraArgs[i+1]
+		}
+	}
+
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
 
-	repoRoot, err := filepath.Abs("..")
-	if err != nil {
-		t.Fatalf("Failed to get repo root: %v", err)
+	srv := server.NewServer(testRepoRoot, web.Assets, defaultRef)
+	httpServer := &http.Server{
+		Handler: srv.Handler(),
 	}
 
-	args := append([]string{"-no-browser", "-port", strconv.Itoa(port)}, extraArgs...)
-	cmd := exec.Command("./local-review", args...)
-	cmd.Dir = repoRoot
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Failed to start local-review server: %v", err)
-	}
+	go func() {
+		_ = httpServer.Serve(l)
+	}()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-
-	ready := false
-	for i := 0; i < 30; i++ {
-		resp, err := http.Get(baseURL + "/api/status")
-		if err == nil && resp.StatusCode == http.StatusOK {
-			_ = resp.Body.Close()
-			ready = true
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if !ready {
-		_ = cmd.Process.Kill()
-		t.Fatalf("Server timed out starting at %s", baseURL)
-	}
-
 	cleanup := func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		_ = httpServer.Close()
+		_ = l.Close()
 	}
 
 	return baseURL, cleanup
@@ -119,8 +111,8 @@ func resetServerState(t *testing.T, baseURL string) {
 	if err == nil {
 		_ = resp.Body.Close()
 	}
-	_ = os.Remove("../.review.md")
-	_ = os.Remove("../.local-review.json")
+	_ = os.Remove(filepath.Join(testRepoRoot, ".review.md"))
+	_ = os.Remove(filepath.Join(testRepoRoot, ".local-review.json"))
 }
 
 func newTestPage(t *testing.T) playwright.Page {
@@ -355,7 +347,7 @@ func TestConfigPersistence(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	if _, err := os.Stat("../.local-review.json"); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(testRepoRoot, ".local-review.json")); os.IsNotExist(err) {
 		t.Fatalf("Expected .local-review.json to exist on disk")
 	}
 
@@ -397,7 +389,7 @@ func TestSaveToFileAndToast(t *testing.T) {
 		t.Fatalf("Toast notification did not appear: %v", err)
 	}
 
-	content, err := os.ReadFile("../.review.md")
+	content, err := os.ReadFile(filepath.Join(testRepoRoot, ".review.md"))
 	if err != nil {
 		t.Fatalf("Failed to read .review.md: %v", err)
 	}
