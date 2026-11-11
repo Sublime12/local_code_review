@@ -58,7 +58,14 @@
   </header>
 
   <main class="main-container">
-    <aside class="file-explorer-sidebar" x-show="sidebarOpen" x-cloak>
+    <aside class="file-explorer-sidebar"
+           x-show="sidebarOpen"
+           :style="'width: ' + sidebarWidth + 'px; min-width: ' + sidebarWidth + 'px; max-width: ' + sidebarWidth + 'px;'"
+           x-cloak>
+      <div class="sidebar-resizer"
+           :class="{ 'is-resizing': isResizingSidebar }"
+           @mousedown.prevent="startSidebarResize($event)"
+           title="Drag to resize file tree"></div>
       <div class="sidebar-header">
         <div class="sidebar-title">
           <span>Files changed</span>

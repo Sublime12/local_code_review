@@ -11,6 +11,8 @@ function reviewApp() {
     toastMessage: '',
     toastVisible: false,
     sidebarOpen: true,
+    sidebarWidth: 290,
+    isResizingSidebar: false,
     fileFilter: '',
     activeFile: '',
     filesList: [],
@@ -55,6 +57,9 @@ function reviewApp() {
           if (cfg.viewMode) this.viewMode = cfg.viewMode;
           if (cfg.diffMode) this.diffMode = cfg.diffMode;
           if (typeof cfg.sidebarOpen === 'boolean') this.sidebarOpen = cfg.sidebarOpen;
+          if (typeof cfg.sidebarWidth === 'number' && cfg.sidebarWidth >= 160 && cfg.sidebarWidth <= 800) {
+            this.sidebarWidth = cfg.sidebarWidth;
+          }
         }
       } catch (err) {
         console.error('Error loading config:', err);
@@ -69,7 +74,8 @@ function reviewApp() {
           body: JSON.stringify({
             viewMode: this.viewMode,
             diffMode: this.diffMode,
-            sidebarOpen: this.sidebarOpen
+            sidebarOpen: this.sidebarOpen,
+            sidebarWidth: this.sidebarWidth
           })
         });
       } catch (err) {
@@ -80,6 +86,26 @@ function reviewApp() {
     toggleSidebar() {
       this.sidebarOpen = !this.sidebarOpen;
       this.saveConfig();
+    },
+
+    startSidebarResize() {
+      this.isResizingSidebar = true;
+      document.body.classList.add('resizing-sidebar');
+      const onMouseMove = (moveEvent) => {
+        if (!this.isResizingSidebar) return;
+        const clamped = Math.min(800, Math.max(160, Math.round(moveEvent.clientX)));
+        this.sidebarWidth = clamped;
+      };
+      const onMouseUp = () => {
+        if (!this.isResizingSidebar) return;
+        this.isResizingSidebar = false;
+        document.body.classList.remove('resizing-sidebar');
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        this.saveConfig();
+      };
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
     },
 
     buildTree() {

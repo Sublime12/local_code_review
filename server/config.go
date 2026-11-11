@@ -10,17 +10,19 @@ import (
 const ConfigFileName = ".local-review.json"
 
 type AppConfig struct {
-	ViewMode    string `json:"viewMode"`
-	DiffMode    string `json:"diffMode"`
-	SidebarOpen *bool  `json:"sidebarOpen,omitempty"`
+	ViewMode     string `json:"viewMode"`
+	DiffMode     string `json:"diffMode"`
+	SidebarOpen  *bool  `json:"sidebarOpen,omitempty"`
+	SidebarWidth int    `json:"sidebarWidth,omitempty"`
 }
 
 func DefaultConfig() AppConfig {
 	defaultOpen := true
 	return AppConfig{
-		ViewMode:    "line-by-line",
-		DiffMode:    "all",
-		SidebarOpen: &defaultOpen,
+		ViewMode:     "line-by-line",
+		DiffMode:     "all",
+		SidebarOpen:  &defaultOpen,
+		SidebarWidth: 290,
 	}
 }
 
@@ -41,6 +43,9 @@ func (s *Server) loadConfig() AppConfig {
 		defaultOpen := true
 		cfg.SidebarOpen = &defaultOpen
 	}
+	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
+		cfg.SidebarWidth = 290
+	}
 	return cfg
 }
 
@@ -54,6 +59,9 @@ func (s *Server) saveConfig(cfg AppConfig) error {
 	if cfg.SidebarOpen == nil {
 		defaultOpen := true
 		cfg.SidebarOpen = &defaultOpen
+	}
+	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
+		cfg.SidebarWidth = 290
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

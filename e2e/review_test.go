@@ -741,3 +741,76 @@ func TestStickyFileHeader(t *testing.T) {
 		t.Errorf("Expected sticky file header top (%v) to match top-header bottom (%v) when scrolled", headerTop, topHeaderBottom)
 	}
 }
+
+func TestResizableFileExplorerSidebar(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	sidebar := page.Locator(".file-explorer-sidebar")
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Sidebar not visible: %v", err)
+	}
+
+	initialBox, err := sidebar.BoundingBox()
+	if err != nil || initialBox == nil {
+		t.Fatalf("Failed to get sidebar bounding box: %v", err)
+	}
+	if initialBox.Width < 289 || initialBox.Width > 291 {
+		t.Fatalf("Expected initial sidebar width ~290px, got %v", initialBox.Width)
+	}
+
+	resizer := page.Locator(".sidebar-resizer")
+	resizerBox, err := resizer.BoundingBox()
+	if err != nil || resizerBox == nil {
+		t.Fatalf("Failed to get resizer bounding box: %v", err)
+	}
+
+	startX := resizerBox.X + resizerBox.Width/2
+	startY := resizerBox.Y + 100
+	targetWidth := 420.0
+
+	if err := page.Mouse().Move(startX, startY); err != nil {
+		t.Fatalf("Mouse move failed: %v", err)
+	}
+	if err := page.Mouse().Down(); err != nil {
+		t.Fatalf("Mouse down failed: %v", err)
+	}
+	if err := page.Mouse().Move(targetWidth, startY); err != nil {
+		t.Fatalf("Mouse drag failed: %v", err)
+	}
+	if err := page.Mouse().Up(); err != nil {
+		t.Fatalf("Mouse up failed: %v", err)
+	}
+
+	resizedBox, err := sidebar.BoundingBox()
+	if err != nil || resizedBox == nil {
+		t.Fatalf("Failed to get resized bounding box: %v", err)
+	}
+	if resizedBox.Width < 418 || resizedBox.Width > 422 {
+		t.Fatalf("Expected resized sidebar width ~420px, got %v", resizedBox.Width)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to reload page: %v", err)
+	}
+	if err := sidebar.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Sidebar not visible after reload: %v", err)
+	}
+
+	persistedBox, err := sidebar.BoundingBox()
+	if err != nil || persistedBox == nil {
+		t.Fatalf("Failed to get persisted bounding box: %v", err)
+	}
+	if persistedBox.Width < 418 || persistedBox.Width > 422 {
+		t.Fatalf("Expected persisted sidebar width ~420px after reload, got %v", persistedBox.Width)
+	}
+}
