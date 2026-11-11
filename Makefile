@@ -13,7 +13,7 @@ review-e2e: e2e/*.go git/*.go server/*.go web/*
 build-e2e: review-e2e
 
 test:
-	go test ./git ./server -v
+	go test . ./git ./server -v
 
 test-e2e: review-e2e
 	./review-e2e -test.v

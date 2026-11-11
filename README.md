@@ -43,7 +43,7 @@ Run inside any git repository:
 local-review
 ```
 
-Your default web browser will automatically open with the review interface.
+The server starts on a local port and prints the URL to open in your browser.
 
 #### CLI Flags
 
@@ -51,8 +51,8 @@ Your default web browser will automatically open with the review interface.
 # Run on a specific port
 local-review -port 8080
 
-# Run without opening the browser automatically
-local-review -no-browser
+# Open the default browser automatically on startup
+local-review --browser
 
 # Compare against a specific git ref/branch
 local-review -ref main

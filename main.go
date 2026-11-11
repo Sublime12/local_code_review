@@ -20,11 +20,27 @@ import (
 //go:embed all:web
 var webAssets embed.FS
 
+type cliOptions struct {
+	port    int
+	browser bool
+	ref     string
+}
+
+func parseFlags(args []string) (cliOptions, error) {
+	fs := flag.NewFlagSet("review", flag.ContinueOnError)
+	var opts cliOptions
+	fs.IntVar(&opts.port, "port", 0, "Port to listen on (0 for automatic free port)")
+	fs.BoolVar(&opts.browser, "browser", false, "Open browser automatically")
+	fs.StringVar(&opts.ref, "ref", "", "Git ref to compare against (e.g. main, HEAD~1)")
+	err := fs.Parse(args)
+	return opts, err
+}
+
 func main() {
-	portFlag := flag.Int("port", 0, "Port to listen on (0 for automatic free port)")
-	noBrowserFlag := flag.Bool("no-browser", false, "Do not open browser automatically")
-	refFlag := flag.String("ref", "", "Git ref to compare against (e.g. main, HEAD~1)")
-	flag.Parse()
+	opts, err := parseFlags(os.Args[1:])
+	if err != nil {
+		os.Exit(2)
+	}
 
 	isGit, err := git.IsInsideWorkTree()
 	if err != nil || !isGit {
@@ -38,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
+	addr := fmt.Sprintf("127.0.0.1:%d", opts.port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		listener, err = net.Listen("tcp", "127.0.0.1:0")
@@ -52,7 +68,7 @@ func main() {
 	assignedPort := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://localhost:%d", assignedPort)
 
-	srv := server.NewServer(repoRoot, webAssets, *refFlag)
+	srv := server.NewServer(repoRoot, webAssets, opts.ref)
 	httpServer := &http.Server{
 		Handler: srv.Handler(),
 	}
@@ -66,14 +82,14 @@ func main() {
 	fmt.Println("=======================================================")
 	fmt.Println(" Local Code Review")
 	fmt.Printf(" Repository: %s\n", repoRoot)
-	if *refFlag != "" {
-		fmt.Printf(" Comparing against ref: %s\n", *refFlag)
+	if opts.ref != "" {
+		fmt.Printf(" Comparing against ref: %s\n", opts.ref)
 	}
 	fmt.Printf(" Server running at: %s\n", url)
 	fmt.Println(" Press Ctrl+C to stop the review server")
 	fmt.Println("=======================================================")
 
-	if !*noBrowserFlag {
+	if opts.browser {
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			openBrowser(url)
