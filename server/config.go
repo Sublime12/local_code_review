@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 )
 
-const ConfigFileName = ".local-review.json"
+const (
+	ConfigAppDirName = "review"
+	ConfigFileName   = "config.json"
+)
 
 type AppConfig struct {
 	ViewMode     string `json:"viewMode"`
@@ -28,9 +31,25 @@ func DefaultConfig() AppConfig {
 	}
 }
 
+func ConfigFilePath() (string, error) {
+	baseDir := os.Getenv("REVIEW_CONFIG_DIR")
+	if baseDir == "" {
+		var err error
+		baseDir, err = os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+	}
+	return filepath.Join(baseDir, ConfigAppDirName, ConfigFileName), nil
+}
+
 func (s *Server) loadConfig() AppConfig {
 	cfg := DefaultConfig()
-	data, err := os.ReadFile(filepath.Join(s.repoRoot, ConfigFileName))
+	cfgPath, err := ConfigFilePath()
+	if err != nil {
+		return cfg
+	}
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return cfg
 	}
@@ -71,12 +90,19 @@ func (s *Server) saveConfig(cfg AppConfig) error {
 	if cfg.ContextLines <= 0 {
 		cfg.ContextLines = 3
 	}
+	cfgPath, err := ConfigFilePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(filepath.Join(s.repoRoot, ConfigFileName), data, 0644)
+	return os.WriteFile(cfgPath, data, 0644)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

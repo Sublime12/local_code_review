@@ -18,9 +18,10 @@ import (
 )
 
 var (
-	pw           *playwright.Playwright
-	browser      playwright.Browser
-	testRepoRoot string
+	pw            *playwright.Playwright
+	browser       playwright.Browser
+	testRepoRoot  string
+	testConfigDir string
 )
 
 func TestMain(m *testing.M) {
@@ -34,6 +35,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "Failed to chdir to repo root: %v\n", err)
 		os.Exit(1)
 	}
+
+	testConfigDir, err = os.MkdirTemp("", "review-e2e-config-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create temp config dir: %v\n", err)
+		os.Exit(1)
+	}
+	_ = os.Setenv("REVIEW_CONFIG_DIR", testConfigDir)
 
 	readmePath := filepath.Join(testRepoRoot, "README.md")
 	originalReadme, readErr := os.ReadFile(readmePath)
@@ -66,7 +74,7 @@ func TestMain(m *testing.M) {
 	}
 
 	_ = os.Remove(filepath.Join(testRepoRoot, ".review.md"))
-	_ = os.Remove(filepath.Join(testRepoRoot, ".local-review.json"))
+	_ = os.RemoveAll(testConfigDir)
 
 	os.Exit(code)
 }
@@ -112,7 +120,9 @@ func resetServerState(t *testing.T, baseURL string) {
 		_ = resp.Body.Close()
 	}
 	_ = os.Remove(filepath.Join(testRepoRoot, ".review.md"))
-	_ = os.Remove(filepath.Join(testRepoRoot, ".local-review.json"))
+	if cfgPath, err := server.ConfigFilePath(); err == nil {
+		_ = os.Remove(cfgPath)
+	}
 }
 
 func newTestPage(t *testing.T) playwright.Page {
@@ -347,8 +357,12 @@ func TestConfigPersistence(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	if _, err := os.Stat(filepath.Join(testRepoRoot, ".local-review.json")); os.IsNotExist(err) {
-		t.Fatalf("Expected .local-review.json to exist on disk")
+	cfgPath, err := server.ConfigFilePath()
+	if err != nil {
+		t.Fatalf("Failed to get config path: %v", err)
+	}
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		t.Fatalf("Expected config file %s to exist on disk", cfgPath)
 	}
 
 	if _, err := page.Reload(); err != nil {

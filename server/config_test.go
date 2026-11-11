@@ -13,6 +13,8 @@ func TestConfigLoadAndSave(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	t.Setenv("REVIEW_CONFIG_DIR", tempDir)
+
 	s := &Server{repoRoot: tempDir}
 
 	cfg := s.loadConfig()
@@ -32,9 +34,9 @@ func TestConfigLoadAndSave(t *testing.T) {
 		t.Fatalf("Failed to save config: %v", err)
 	}
 
-	configFile := filepath.Join(tempDir, ConfigFileName)
+	configFile := filepath.Join(tempDir, ConfigAppDirName, ConfigFileName)
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
-		t.Fatalf("Config file was not created: %s", configFile)
+		t.Fatalf("Config file was not created in user config dir: %s", configFile)
 	}
 
 	loaded := s.loadConfig()
