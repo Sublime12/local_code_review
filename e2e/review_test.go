@@ -1029,3 +1029,61 @@ func TestHunkExpandTopAndBottomButtons(t *testing.T) {
 		}
 	}
 }
+
+func TestUnrecognizedLanguageDefaultHighlighting(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	firstWrapper := page.Locator(".d2h-file-wrapper").First()
+	if err := firstWrapper.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("File wrapper not visible: %v", err)
+	}
+
+	res, err := page.Evaluate(`() => {
+		const app = window.Alpine && window.Alpine.$data ? window.Alpine.$data(document.querySelector('[x-data]')) : null;
+		if (!app || !app.hljs) return { error: "no hljs on app" };
+
+		const sampleCode = "pub fn calculate(val: usize) void { while (val > 0) { if (val == 42) return; } }";
+		const outZig = app.highlightCode("sample.zig", sampleCode);
+		const outGeneric = app.highlightCode("custom.unknown", sampleCode);
+
+		return {
+			zigHasKeyword: outZig.includes("hljs-keyword"),
+			zigHasTitle: outZig.includes("hljs-title"),
+			genericHasKeyword: outGeneric.includes("hljs-keyword"),
+			genericHasTitle: outGeneric.includes("hljs-title"),
+			outZig: outZig,
+			outGeneric: outGeneric
+		};
+	}`)
+	if err != nil {
+		t.Fatalf("Failed to evaluate highlightCode: %v", err)
+	}
+
+	data, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected map result, got %T: %v", res, res)
+	}
+	if data["error"] != nil {
+		t.Fatalf("Highlight evaluation error: %v", data["error"])
+	}
+	if data["zigHasKeyword"] != true {
+		t.Errorf("Expected zig highlighting to contain hljs-keyword: %+v", data)
+	}
+	if data["zigHasTitle"] != true {
+		t.Errorf("Expected zig highlighting to contain hljs-title: %+v", data)
+	}
+	if data["genericHasKeyword"] != true {
+		t.Errorf("Expected unrecognized language highlighting to contain hljs-keyword: %+v", data)
+	}
+	if data["genericHasTitle"] != true {
+		t.Errorf("Expected unrecognized language highlighting to contain hljs-title: %+v", data)
+	}
+}

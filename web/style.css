@@ -853,6 +853,20 @@ del, .d2h-del-token {
   font-size: 0.8rem;
 }
 
+/* Enhanced syntax highlighting for generic/unrecognized code */
+.hljs-property {
+  color: #79c0ff;
+}
+
+.hljs-type {
+  color: #ffa657 !important;
+}
+
+.hljs-variable.constant_ {
+  color: #79c0ff;
+  font-weight: 500;
+}
+
 /* ==========================================================================
    INLINE COMMENTS & ACTIONS
    ========================================================================== */

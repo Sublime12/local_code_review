@@ -21,6 +21,7 @@ function reviewApp() {
     treeNodes: [],
     fileTotalLines: {},
     scrollObserver: null,
+    hljs: null,
 
     async init() {
       this.setupHeaderObserver();
@@ -367,6 +368,8 @@ function reviewApp() {
           outputFormat: this.viewMode,
           highlight: true
         });
+        registerGenericCodeGrammar(diff2htmlUi.hljs);
+        this.hljs = diff2htmlUi.hljs;
         diff2htmlUi.draw();
       } else if (typeof Diff2Html !== 'undefined') {
         const diffHtml = Diff2Html.html(this.diffText, {
@@ -1047,9 +1050,23 @@ function reviewApp() {
       }
     },
 
+    highlightCode(filePath, content) {
+      if (!content) return '';
+      if (!this.hljs) return escapeHtml(content);
+      const ext = (filePath.split('.').pop() || '').toLowerCase();
+      const lang = this.hljs.getLanguage(ext) ? ext : 'plaintext';
+      try {
+        const res = this.hljs.highlight(content, { language: lang, ignoreIllegals: true });
+        return res.value;
+      } catch (e) {
+        return escapeHtml(content);
+      }
+    },
+
     createUnifiedContextRow(filePath, oldNum, newNum, content) {
       const tr = document.createElement('tr');
       tr.className = 'd2h-cntx-expanded';
+      const codeHtml = this.highlightCode(filePath, content);
       tr.innerHTML = `
         <td class="d2h-code-linenumber d2h-cntx" title="Click to add a review comment" style="cursor: pointer;">
           <div class="line-num1">${oldNum > 0 ? oldNum : ''}</div>
@@ -1058,7 +1075,7 @@ function reviewApp() {
         <td class="d2h-cntx">
           <div class="d2h-code-line">
             <span class="d2h-code-line-prefix">&nbsp;</span>
-            <span class="d2h-code-line-ctn">${escapeHtml(content)}</span>
+            <span class="d2h-code-line-ctn hljs">${codeHtml}</span>
           </div>
         </td>
       `;
@@ -1071,6 +1088,7 @@ function reviewApp() {
     },
 
     createSplitContextRows(filePath, oldNum, newNum, content) {
+      const codeHtml = this.highlightCode(filePath, content);
       const leftTr = document.createElement('tr');
       leftTr.className = 'd2h-cntx-expanded';
       leftTr.innerHTML = `
@@ -1078,7 +1096,7 @@ function reviewApp() {
         <td class="d2h-cntx">
           <div class="d2h-code-side-line">
             <span class="d2h-code-line-prefix">&nbsp;</span>
-            <span class="d2h-code-line-ctn">${escapeHtml(content)}</span>
+            <span class="d2h-code-line-ctn hljs">${codeHtml}</span>
           </div>
         </td>
       `;
@@ -1090,7 +1108,7 @@ function reviewApp() {
         <td class="d2h-cntx">
           <div class="d2h-code-side-line">
             <span class="d2h-code-line-prefix">&nbsp;</span>
-            <span class="d2h-code-line-ctn">${escapeHtml(content)}</span>
+            <span class="d2h-code-line-ctn hljs">${codeHtml}</span>
           </div>
         </td>
       `;
@@ -1452,4 +1470,82 @@ function escapeHtml(str) {
                     .replace(/>/g, "&gt;")
                     .replace(/"/g, "&quot;")
                     .replace(/'/g, "&#039;");
+}
+
+function registerGenericCodeGrammar(hljs) {
+  if (!hljs || typeof hljs.registerLanguage !== 'function') return;
+
+  function genericLanguage(hljsInstance) {
+    const KEYWORDS = {
+      keyword: [
+        // Conditionals & branches ("ifs")
+        "if", "else", "elif", "elsif", "then", "endif", "switch", "case", "select", "match", "default", "when", "guard",
+        // Loops
+        "for", "while", "do", "loop", "repeat", "until", "break", "continue", "in", "each", "of",
+        // Functions & declarations
+        "fn", "func", "function", "def", "sub", "proc", "method", "macro",
+        "let", "var", "const", "mut", "pub", "priv", "package", "import", "export", "from", "as", "include", "require", "use", "extern",
+        // Control flow & errors
+        "return", "yield", "defer", "errdefer", "try", "catch", "finally", "throw", "raise", "panic", "assert",
+        // Types & structures
+        "struct", "class", "interface", "enum", "type", "union", "trait", "impl", "new", "delete",
+        // Modifiers & concurrency
+        "async", "await", "comptime", "inline", "volatile", "atomic",
+        // Logical
+        "and", "or", "not", "xor", "is", "with"
+      ],
+      literal: [
+        "true", "false", "null", "nil", "undefined", "none", "None", "Some", "Ok", "Err", "NaN", "Infinity", "self", "this"
+      ],
+      type: [
+        "int", "i8", "i16", "i32", "i64", "i128", "isize",
+        "u8", "u16", "u32", "u64", "u128", "usize",
+        "f16", "f32", "f64", "f80", "f128", "float", "double",
+        "bool", "boolean", "char", "str", "string", "void", "any", "anytype", "anyerror",
+        "byte", "comptime_int", "comptime_float"
+      ]
+    };
+
+    return {
+      name: "Generic Code",
+      keywords: KEYWORDS,
+      contains: [
+        hljsInstance.C_LINE_COMMENT_MODE,
+        hljsInstance.HASH_COMMENT_MODE,
+        hljsInstance.C_BLOCK_COMMENT_MODE,
+        hljsInstance.QUOTE_STRING_MODE,
+        hljsInstance.APOS_STRING_MODE,
+        { scope: "string", begin: "\\\\\\\\.*$" },
+        hljsInstance.C_NUMBER_MODE,
+        {
+          scope: "title.function.invoke",
+          begin: "\\b(?!(?:if|else|elif|elsif|for|while|switch|case|match|catch|return|defer|errdefer|yield)\\b)[a-zA-Z_]\\w*(?=\\s*\\()"
+        },
+        {
+          scope: "variable.constant",
+          begin: "\\b[A-Z][A-Z0-9_]{2,}\\b"
+        },
+        {
+          scope: "type",
+          begin: "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        },
+        {
+          scope: "property",
+          begin: "(?<=\\.)[a-zA-Z_]\\w*\\b"
+        }
+      ]
+    };
+  }
+
+  const commonLangs = [
+    "plaintext", "generic", "zig", "odin", "v", "nim", "gleam", "mojo",
+    "sol", "solidity", "proto", "vue", "svelte", "astro", "hcl", "tf"
+  ];
+  commonLangs.forEach(lang => {
+    try {
+      hljs.registerLanguage(lang, genericLanguage);
+    } catch (e) {
+      // Ignore if already registered
+    }
+  });
 }
