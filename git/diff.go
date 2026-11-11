@@ -52,11 +52,14 @@ func GetCurrentBranch() string {
 	return strings.TrimSpace(string(out))
 }
 
-// GetDiff runs git diff based on the specified mode (all, staged, unstaged, branch)
-func GetDiff(mode string, ref string) (string, error) {
+func GetDiff(mode string, ref string, contextLines ...int) (string, error) {
+	ctx := 3
+	if len(contextLines) > 0 && contextLines[0] >= 0 {
+		ctx = contextLines[0]
+	}
 	var args []string
 	hasHead := HasHeadCommit()
-	diffBase := []string{"diff", "--diff-algorithm=histogram", "-U3"}
+	diffBase := []string{"diff", "--diff-algorithm=histogram", fmt.Sprintf("-U%d", ctx)}
 
 	switch mode {
 	case "staged":
@@ -168,6 +171,49 @@ func GetLineContext(repoRoot, filePath string, targetLine int, radius int) ([]Co
 			LineNumber: l,
 			Content:    allLines[l-1],
 			IsTarget:   l == targetLine,
+		})
+	}
+
+	return result, nil
+}
+
+func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine, error) {
+	fullPath := filepath.Join(repoRoot, filePath)
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var allLines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		allLines = append(allLines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	total := len(allLines)
+	if total == 0 {
+		return []CodeLine{}, nil
+	}
+
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > total {
+		endLine = total
+	}
+	if startLine > endLine {
+		return []CodeLine{}, nil
+	}
+
+	var result []CodeLine
+	for l := startLine; l <= endLine; l++ {
+		result = append(result, CodeLine{
+			LineNumber: l,
+			Content:    allLines[l-1],
 		})
 	}
 

@@ -465,7 +465,7 @@ body.resizing-sidebar {
 .sidebar-expand-tab {
   position: fixed;
   left: 0;
-  top: 68px;
+  top: calc(var(--top-header-height, 57px) + 12px);
   z-index: 60;
   display: inline-flex;
   align-items: center;
@@ -499,7 +499,7 @@ body.resizing-sidebar {
   flex: 1;
   padding: 24px;
   overflow-y: visible;
-  max-width: 1440px;
+  max-width: none;
   margin: 0 auto;
   width: 100%;
   min-width: 0;
@@ -697,7 +697,8 @@ body.resizing-sidebar {
   background-color: var(--gh-surface-overlay) !important;
 }
 
-.d2h-code-linenumber:hover::after, .d2h-code-side-linenumber:hover::after {
+.d2h-code-linenumber:not(.d2h-info):not(.d2h-emptyplaceholder):hover::after,
+.d2h-code-side-linenumber:not(.d2h-info):not(.d2h-emptyplaceholder):not(.d2h-code-side-emptyplaceholder):hover::after {
   content: "+" !important;
   position: absolute;
   left: 6px;
@@ -789,6 +790,27 @@ del, .d2h-del-token {
 .d2h-code-linenumber.d2h-info, .d2h-code-side-linenumber.d2h-info {
   background-color: var(--gh-surface) !important;
   color: var(--gh-text-muted) !important;
+  text-align: center !important;
+  padding: 0 2px !important;
+}
+
+.hunk-expand-btn {
+  background-color: var(--gh-surface-overlay);
+  color: var(--gh-link);
+  border: 1px solid var(--gh-border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 1px 6px;
+  cursor: pointer;
+  width: 100%;
+  transition: all 0.15s ease;
+}
+
+.hunk-expand-btn:hover {
+  background-color: #1f6feb;
+  color: #ffffff;
+  border-color: #1f6feb;
 }
 
 /* ==========================================================================

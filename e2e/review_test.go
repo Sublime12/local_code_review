@@ -168,6 +168,9 @@ func TestDashboardLoad(t *testing.T) {
 		t.Errorf("Branch badge is empty: %q", branch)
 	}
 
+	if err := page.Locator(".d2h-file-wrapper .d2h-file-name").First().WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("File wrapper did not appear: %v", err)
+	}
 	fileNames, err := page.Locator(".d2h-file-wrapper .d2h-file-name").AllTextContents()
 	if err != nil || len(fileNames) == 0 {
 		t.Fatalf("Expected file wrappers with names, got: %v (err: %v)", fileNames, err)
@@ -254,6 +257,9 @@ func TestSideBySideCommentFlow(t *testing.T) {
 	}
 
 	lineNumbers := page.Locator(".d2h-code-side-linenumber:not(.d2h-info):not(.d2h-emptyplaceholder)")
+	if err := lineNumbers.First().WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Side-by-side line numbers did not appear: %v", err)
+	}
 	count, err := lineNumbers.Count()
 	if err != nil || count == 0 {
 		t.Fatalf("Expected line numbers, got count: %d (err: %v)", count, err)
@@ -485,6 +491,9 @@ func TestFileExplorerTreeAndNavigation(t *testing.T) {
 	}
 
 	fileRows := page.Locator(".tree-row.is-file")
+	if err := fileRows.First().WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("File rows did not appear in tree: %v", err)
+	}
 	fileCount, err := fileRows.Count()
 	if err != nil || fileCount == 0 {
 		t.Fatalf("Expected file rows in tree, got count: %d", fileCount)
@@ -812,5 +821,62 @@ func TestResizableFileExplorerSidebar(t *testing.T) {
 	}
 	if persistedBox.Width < 418 || persistedBox.Width > 422 {
 		t.Fatalf("Expected persisted sidebar width ~420px after reload, got %v", persistedBox.Width)
+	}
+}
+
+func TestExpandDiffContext(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	expandBtn := page.Locator(".hunk-expand-btn").First()
+	if err := expandBtn.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Hunk expand button not visible: %v", err)
+	}
+
+	initialCntxCount, err := page.Locator("td.d2h-code-linenumber.d2h-cntx").Count()
+	if err != nil {
+		t.Fatalf("Failed to count initial context lines: %v", err)
+	}
+
+	if err := expandBtn.Click(); err != nil {
+		t.Fatalf("Failed to click hunk expand button: %v", err)
+	}
+
+	expandedRow := page.Locator("tr.d2h-cntx-expanded").First()
+	if err := expandedRow.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Expanded context rows did not appear after clicking hunk expand button: %v", err)
+	}
+
+	afterHunkExpandCount, _ := page.Locator("td.d2h-code-linenumber.d2h-cntx").Count()
+	if afterHunkExpandCount <= initialCntxCount {
+		t.Fatalf("Expected context line count to increase after hunk expand (before=%d, after=%d)", initialCntxCount, afterHunkExpandCount)
+	}
+
+	contextSelect := page.Locator("select.context-select")
+	if _, err := contextSelect.SelectOption(playwright.SelectOptionValues{Values: playwright.StringSlice("25")}); err != nil {
+		t.Fatalf("Failed to select 25 context lines: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	widerCntxCount, _ := page.Locator("td.d2h-code-linenumber.d2h-cntx").Count()
+	if widerCntxCount <= initialCntxCount {
+		t.Fatalf("Expected more context lines with 25-line context setting (initial=%d, got=%d)", initialCntxCount, widerCntxCount)
+	}
+
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to reload page: %v", err)
+	}
+
+	selectedVal, err := page.Locator("select.context-select").InputValue()
+	if err != nil || selectedVal != "25" {
+		t.Fatalf("Expected persisted contextLines '25' after reload, got %q (err: %v)", selectedVal, err)
 	}
 }

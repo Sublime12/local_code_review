@@ -71,4 +71,12 @@ line 10`
 	if linesEnd[2].LineNumber != 10 || !linesEnd[2].IsTarget {
 		t.Errorf("Expected target line to be line 10, got: %+v", linesEnd[2])
 	}
+
+	rangeLines, err := GetLineRange(tempDir, testFile, 2, 6)
+	if err != nil {
+		t.Fatalf("GetLineRange failed: %v", err)
+	}
+	if len(rangeLines) != 5 || rangeLines[0].LineNumber != 2 || rangeLines[4].LineNumber != 6 {
+		t.Errorf("Unexpected rangeLines: %+v", rangeLines)
+	}
 }

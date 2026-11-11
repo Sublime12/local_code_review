@@ -58,22 +58,53 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	mode := r.URL.Query().Get("mode")
 	ref := r.URL.Query().Get("ref")
+	contextStr := r.URL.Query().Get("context")
 
-	diffText, err := git.GetDiff(mode, ref)
+	contextLines := 3
+	if cVal, err := strconv.Atoi(contextStr); err == nil && cVal >= 0 {
+		contextLines = cVal
+	}
+
+	diffText, err := git.GetDiff(mode, ref, contextLines)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"diff": diffText,
-		"mode": mode,
-		"ref":  ref,
+		"diff":    diffText,
+		"mode":    mode,
+		"ref":     ref,
+		"context": contextLines,
 	})
 }
 
 func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	filePath := r.URL.Query().Get("file")
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	if filePath != "" && startStr != "" && endStr != "" {
+		startLine, err1 := strconv.Atoi(startStr)
+		endLine, err2 := strconv.Atoi(endStr)
+		if err1 != nil || err2 != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid start or end line number"})
+			return
+		}
+		lines, err := git.GetLineRange(s.repoRoot, filePath, startLine, endLine)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"file":    filePath,
+			"start":   startLine,
+			"end":     endLine,
+			"context": lines,
+		})
+		return
+	}
+
 	lineStr := r.URL.Query().Get("line")
 	radiusStr := r.URL.Query().Get("radius")
 

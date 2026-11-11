@@ -14,6 +14,7 @@ type AppConfig struct {
 	DiffMode     string `json:"diffMode"`
 	SidebarOpen  *bool  `json:"sidebarOpen,omitempty"`
 	SidebarWidth int    `json:"sidebarWidth,omitempty"`
+	ContextLines int    `json:"contextLines,omitempty"`
 }
 
 func DefaultConfig() AppConfig {
@@ -23,6 +24,7 @@ func DefaultConfig() AppConfig {
 		DiffMode:     "all",
 		SidebarOpen:  &defaultOpen,
 		SidebarWidth: 290,
+		ContextLines: 3,
 	}
 }
 
@@ -46,6 +48,9 @@ func (s *Server) loadConfig() AppConfig {
 	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
 		cfg.SidebarWidth = 290
 	}
+	if cfg.ContextLines <= 0 {
+		cfg.ContextLines = 3
+	}
 	return cfg
 }
 
@@ -62,6 +67,9 @@ func (s *Server) saveConfig(cfg AppConfig) error {
 	}
 	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
 		cfg.SidebarWidth = 290
+	}
+	if cfg.ContextLines <= 0 {
+		cfg.ContextLines = 3
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

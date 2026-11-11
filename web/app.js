@@ -4,6 +4,7 @@ function reviewApp() {
     repoRoot: '',
     diffMode: 'all',
     viewMode: 'line-by-line',
+    contextLines: 3,
     diffText: '',
     comments: [],
     loading: true,
@@ -60,6 +61,9 @@ function reviewApp() {
           if (typeof cfg.sidebarWidth === 'number' && cfg.sidebarWidth >= 160 && cfg.sidebarWidth <= 800) {
             this.sidebarWidth = cfg.sidebarWidth;
           }
+          if (typeof cfg.contextLines === 'number' && cfg.contextLines > 0) {
+            this.contextLines = cfg.contextLines;
+          }
         }
       } catch (err) {
         console.error('Error loading config:', err);
@@ -75,7 +79,8 @@ function reviewApp() {
             viewMode: this.viewMode,
             diffMode: this.diffMode,
             sidebarOpen: this.sidebarOpen,
-            sidebarWidth: this.sidebarWidth
+            sidebarWidth: this.sidebarWidth,
+            contextLines: Number(this.contextLines) || 3
           })
         });
       } catch (err) {
@@ -296,7 +301,7 @@ function reviewApp() {
     async loadDiff() {
       this.loading = true;
       try {
-        const res = await fetch(`/api/diff?mode=${this.diffMode}`);
+        const res = await fetch(`/api/diff?mode=${this.diffMode}&context=${this.contextLines}`);
         const data = await res.json();
         this.diffText = data.diff || '';
         this.empty = !this.diffText.trim();
@@ -317,6 +322,12 @@ function reviewApp() {
 
     switchDiffMode(mode) {
       this.diffMode = mode;
+      this.saveConfig();
+      this.loadDiff();
+    },
+
+    switchContextLines(lines) {
+      this.contextLines = parseInt(lines, 10) || 3;
       this.saveConfig();
       this.loadDiff();
     },
@@ -404,8 +415,118 @@ function reviewApp() {
       }
 
       this.attachLineListeners();
+      this.attachHunkExpanders();
       this.renderExistingComments();
       this.setupScrollSpy();
+    },
+
+    attachHunkExpanders() {
+      const fileWrappers = document.querySelectorAll('.d2h-file-wrapper');
+      fileWrappers.forEach(fileEl => {
+        const fileNameEl = fileEl.querySelector('.d2h-file-name');
+        if (!fileNameEl) return;
+        const filePath = fileNameEl.textContent.trim();
+        if (!filePath) return;
+
+        const infoCells = fileEl.querySelectorAll('td.d2h-code-linenumber.d2h-info');
+        infoCells.forEach(gutterCell => {
+          const infoRow = gutterCell.closest('tr');
+          if (!infoRow) return;
+          const codeLineEl = infoRow.querySelector('.d2h-code-line');
+          if (!codeLineEl) return;
+          const headerText = codeLineEl.textContent.trim();
+          const match = headerText.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+          if (!match) return;
+
+          let oldStart = parseInt(match[1], 10);
+          let oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
+          let newStart = parseInt(match[3], 10);
+          let newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;
+          const suffix = match[5] || '';
+
+          if (newStart <= 1) return;
+
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'hunk-expand-btn';
+          btn.title = 'Expand hidden context lines';
+          btn.textContent = '↕ Expand';
+          gutterCell.innerHTML = '';
+          gutterCell.appendChild(btn);
+
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            let minNew = 1;
+            const prevRow = infoRow.previousElementSibling;
+            if (prevRow) {
+              const prevNum2 = prevRow.querySelector('.line-num2');
+              if (prevNum2 && prevNum2.textContent.trim()) {
+                const parsed = parseInt(prevNum2.textContent.trim(), 10);
+                if (!isNaN(parsed)) minNew = parsed + 1;
+              }
+            }
+
+            const endNew = newStart - 1;
+            if (endNew < minNew) {
+              infoRow.remove();
+              return;
+            }
+
+            const step = Math.min(20, endNew - minNew + 1);
+            const startNew = endNew - step + 1;
+            const startOld = Math.max(1, oldStart - step);
+
+            try {
+              const res = await fetch(`/api/context?file=${encodeURIComponent(filePath)}&start=${startNew}&end=${endNew}`);
+              if (!res.ok) return;
+              const data = await res.json();
+              const lines = data.context || [];
+              if (!lines.length) return;
+
+              const fragment = document.createDocumentFragment();
+              lines.forEach((item, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = 'd2h-cntx-expanded';
+                const oldNum = startOld + idx;
+                const newNum = item.lineNumber;
+                tr.innerHTML = `
+                  <td class="d2h-code-linenumber d2h-cntx" title="Click to add a review comment" style="cursor: pointer;">
+                    <div class="line-num1">${oldNum}</div>
+                    <div class="line-num2">${newNum}</div>
+                  </td>
+                  <td class="d2h-cntx">
+                    <div class="d2h-code-line">
+                      <span class="d2h-code-line-prefix">&nbsp;</span>
+                      <span class="d2h-code-line-ctn">${escapeHtml(item.content)}</span>
+                    </div>
+                  </td>
+                `;
+                const lineCell = tr.querySelector('.d2h-code-linenumber');
+                lineCell.addEventListener('click', (ev) => {
+                  ev.stopPropagation();
+                  this.showCommentInput(filePath, newNum, tr);
+                });
+                fragment.appendChild(tr);
+              });
+
+              infoRow.parentNode.insertBefore(fragment, infoRow.nextSibling);
+
+              newStart = startNew;
+              oldStart = startOld;
+              newCount += lines.length;
+              oldCount += lines.length;
+
+              if (startNew <= minNew) {
+                infoRow.remove();
+              } else {
+                codeLineEl.textContent = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${suffix}`;
+              }
+            } catch (err) {
+              console.error('Error expanding hunk:', err);
+            }
+          });
+        });
+      });
     },
 
     attachLineListeners() {

@@ -42,6 +42,16 @@
         <option value="side-by-side">Split (Side-by-Side)</option>
       </select>
 
+      <label style="font-size: 0.85rem; color: var(--gh-text-muted); margin-left: 8px;">Context:</label>
+      <select class="select-input context-select" x-model.number="contextLines" @change="switchContextLines($event.target.value)">
+        <option value="3">3 lines</option>
+        <option value="10">10 lines</option>
+        <option value="25">25 lines</option>
+        <option value="50">50 lines</option>
+        <option value="100">100 lines</option>
+        <option value="100000">Full file</option>
+      </select>
+
       <button class="btn btn-secondary" @click="loadDiff()" title="Reload Git Diff">
         Refresh
       </button>
