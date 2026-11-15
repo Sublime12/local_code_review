@@ -18,6 +18,8 @@ Built specifically for AI coding agent workflows (Claude Code, Cursor, Codex, lo
 - **AI Agent Prompt Formatter:** Formats all comments with target line numbers and surrounding code context (e.g. 2 lines before and after).
 - **Single-Click Copy & Save:** Copy formatted agent prompts directly to clipboard or export to `.review.md`.
 - **Git Ref & Branch Comparison:** Compare working directory changes against any branch or commit using the `-ref` CLI flag or the live top-bar input.
+- **Full Codebase Review (No Diff):** Browse the entire repository source tree without needing uncommitted changes (`review -codebase` or `Full Codebase (No Diff)` in the mode selector) to review existing code line-by-line.
+- **Architecture & File-Level Suggestions:** Record project-wide architectural notes and file-level suggestions alongside inline line comments, exported cleanly for AI coding agents.
 - **Clean OS User Config Storage:** Preferences (view mode, diff mode, sidebar width, context lines) are stored in standard OS user config directories (`~/.config/review/config.json` on Linux, `~/Library/Application Support/review/` on macOS, `%AppData%\review\` on Windows) without polluting your repository.
 - **100% Offline & Zero Runtime Dependencies:** All web assets (`Alpine.js`, `diff2html`, dark themes) are embedded inside the Go executable using `//go:embed`.
 
@@ -63,6 +65,9 @@ review --browser
 # Compare working tree against a specific git ref or branch
 review -ref main
 review -ref HEAD~1
+
+# Review the full codebase without a git diff
+review -codebase
 ```
 
 ---

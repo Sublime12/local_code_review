@@ -2,10 +2,13 @@ package git
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -126,21 +129,175 @@ func getUntrackedDiff() (string, error) {
 	return sb.String(), nil
 }
 
-// GetLineContext reads lines around targetLine (1-indexed) in filePath with given radius
-func GetLineContext(repoRoot, filePath string, targetLine int, radius int) ([]CodeLine, error) {
-	fullPath := filepath.Join(repoRoot, filePath)
-	file, err := os.Open(fullPath)
+const maxScannerLineSize = 8 * 1024 * 1024
+
+func resolveRepoFile(repoRoot, filePath string) (string, error) {
+	trimmed := strings.TrimSpace(filePath)
+	if trimmed == "" || filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("invalid file path")
+	}
+
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(filepath.Join(absRoot, filepath.FromSlash(trimmed)))
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(absRoot, absTarget)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes repository root")
+	}
+
+	evalRoot, rootErr := filepath.EvalSymlinks(absRoot)
+	evalTarget, targetErr := filepath.EvalSymlinks(absTarget)
+	if rootErr == nil && targetErr == nil {
+		evalRel, relErr := filepath.Rel(evalRoot, evalTarget)
+		if relErr != nil || evalRel == "." || evalRel == ".." || strings.HasPrefix(evalRel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("path escapes repository root")
+		}
+	}
+
+	return absTarget, nil
+}
+
+func isBinaryFile(file *os.File) (bool, error) {
+	buf := make([]byte, 8192)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	isBin := bytes.IndexByte(buf[:n], 0) >= 0
+	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+		return false, seekErr
+	}
+	return isBin, nil
+}
+
+func scanAllLines(r io.Reader) ([]string, error) {
+	var lines []string
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxScannerLineSize)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func openValidatedRepoFile(repoRoot, filePath string) (*os.File, error) {
+	fullPath, err := resolveRepoFile(repoRoot, filePath)
 	if err != nil {
 		return nil, err
 	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("path is a directory")
+	}
+
+	return os.Open(fullPath)
+}
+
+func readRepoFileLines(repoRoot, filePath string) ([]string, bool, error) {
+	file, err := openValidatedRepoFile(repoRoot, filePath)
+	if err != nil {
+		return nil, false, err
+	}
 	defer file.Close()
 
-	var allLines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		allLines = append(allLines, scanner.Text())
+	binary, err := isBinaryFile(file)
+	if err != nil {
+		return nil, false, err
 	}
-	if err := scanner.Err(); err != nil {
+	if binary {
+		return nil, true, nil
+	}
+
+	lines, err := scanAllLines(file)
+	if err != nil {
+		return nil, false, err
+	}
+	return lines, false, nil
+}
+
+func CountFileLines(repoRoot, filePath string) (int, bool, error) {
+	file, err := openValidatedRepoFile(repoRoot, filePath)
+	if err != nil {
+		return 0, false, err
+	}
+	defer file.Close()
+
+	buf := make([]byte, 32*1024)
+	lines := 0
+	totalBytes := 0
+	var lastByte byte
+	checkedBinary := false
+
+	for {
+		n, readErr := file.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if !checkedBinary {
+				checkedBinary = true
+				checkLen := n
+				if checkLen > 8192 {
+					checkLen = 8192
+				}
+				if bytes.IndexByte(chunk[:checkLen], 0) >= 0 {
+					return 0, true, nil
+				}
+			}
+			lines += bytes.Count(chunk, []byte{'\n'})
+			totalBytes += n
+			lastByte = chunk[n-1]
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return 0, false, readErr
+		}
+	}
+
+	if totalBytes > 0 && lastByte != '\n' {
+		lines++
+	}
+	return lines, false, nil
+}
+
+func SummarizeRepoFiles(repoRoot string, files []string) (map[string]int, map[string]bool, int) {
+	fileLines := make(map[string]int, len(files))
+	binaryFiles := make(map[string]bool)
+	totalLines := 0
+
+	for _, f := range files {
+		count, isBinary, err := CountFileLines(repoRoot, f)
+		if err != nil {
+			continue
+		}
+		if isBinary {
+			binaryFiles[f] = true
+			continue
+		}
+		fileLines[f] = count
+		totalLines += count
+	}
+
+	return fileLines, binaryFiles, totalLines
+}
+
+// GetLineContext reads lines around targetLine (1-indexed) in filePath with given radius
+func GetLineContext(repoRoot, filePath string, targetLine int, radius int) ([]CodeLine, error) {
+	allLines, binary, err := readRepoFileLines(repoRoot, filePath)
+	if err != nil || binary {
 		return nil, err
 	}
 
@@ -178,19 +335,8 @@ func GetLineContext(repoRoot, filePath string, targetLine int, radius int) ([]Co
 }
 
 func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine, int, error) {
-	fullPath := filepath.Join(repoRoot, filePath)
-	file, err := os.Open(fullPath)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer file.Close()
-
-	var allLines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		allLines = append(allLines, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
+	allLines, binary, err := readRepoFileLines(repoRoot, filePath)
+	if err != nil || binary {
 		return nil, 0, err
 	}
 
@@ -221,19 +367,63 @@ func GetLineRange(repoRoot, filePath string, startLine, endLine int) ([]CodeLine
 }
 
 func GetFileLineCount(repoRoot, filePath string) (int, error) {
-	fullPath := filepath.Join(repoRoot, filePath)
-	file, err := os.Open(fullPath)
-	if err != nil {
+	allLines, binary, err := readRepoFileLines(repoRoot, filePath)
+	if err != nil || binary {
 		return 0, err
 	}
-	defer file.Close()
+	return len(allLines), nil
+}
 
-	scanner := bufio.NewScanner(file)
-	count := 0
-	for scanner.Scan() {
-		count++
+func ListRepoFiles(repoRoot string) ([]string, error) {
+	cmd := exec.Command("git", "-C", repoRoot, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files failed: %w", err)
 	}
-	return count, scanner.Err()
+
+	seen := make(map[string]struct{})
+	var files []string
+	for _, entry := range bytes.Split(out, []byte{0}) {
+		if len(entry) == 0 {
+			continue
+		}
+		relPath := filepath.ToSlash(string(entry))
+		if _, exists := seen[relPath]; exists {
+			continue
+		}
+		fullPath, err := resolveRepoFile(repoRoot, relPath)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		seen[relPath] = struct{}{}
+		files = append(files, relPath)
+	}
+
+	sort.Strings(files)
+	return files, nil
+}
+
+func GetFileContent(repoRoot, filePath string) ([]CodeLine, bool, error) {
+	allLines, binary, err := readRepoFileLines(repoRoot, filePath)
+	if err != nil {
+		return nil, false, err
+	}
+	if binary {
+		return nil, true, nil
+	}
+
+	lines := make([]CodeLine, len(allLines))
+	for i, content := range allLines {
+		lines[i] = CodeLine{
+			LineNumber: i + 1,
+			Content:    content,
+		}
+	}
+	return lines, false, nil
 }
 
 func GetDiffFileLines(repoRoot, diffText string) map[string]int {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -61,15 +62,25 @@ func (s *CommentStore) Clear() {
 	s.comments = make(map[string]Comment)
 }
 
-// List returns all active comments
-func (s *CommentStore) List() []Comment {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *CommentStore) sortedComments() []Comment {
 	list := make([]Comment, 0, len(s.comments))
 	for _, c := range s.comments {
 		list = append(list, c)
 	}
+	sort.Slice(list, func(i, j int) bool {
+		if !list[i].CreatedAt.Equal(list[j].CreatedAt) {
+			return list[i].CreatedAt.Before(list[j].CreatedAt)
+		}
+		return list[i].ID < list[j].ID
+	})
 	return list
+}
+
+// List returns all active comments
+func (s *CommentStore) List() []Comment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sortedComments()
 }
 
 // GeneratePrompt formats the review comments into the prompt for AI agents
@@ -84,10 +95,19 @@ func (s *CommentStore) GeneratePrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Please address the following code review comments:\n\n")
 
-	for _, c := range s.comments {
-		sb.WriteString(fmt.Sprintf("review: %s\n", c.Text))
-		sb.WriteString(fmt.Sprintf("%s:%d\n", c.FilePath, c.Line))
+	for _, c := range s.sortedComments() {
+		if c.FilePath == "" {
+			sb.WriteString(fmt.Sprintf("review (general): %s\n\n", c.Text))
+			continue
+		}
 
+		sb.WriteString(fmt.Sprintf("review: %s\n", c.Text))
+		if c.Line <= 0 {
+			sb.WriteString(fmt.Sprintf("%s\n\n", c.FilePath))
+			continue
+		}
+
+		sb.WriteString(fmt.Sprintf("%s:%d\n", c.FilePath, c.Line))
 		if len(c.Snippet) > 0 {
 			for _, line := range c.Snippet {
 				sb.WriteString(fmt.Sprintf("%d %s\n", line.LineNumber, line.Content))

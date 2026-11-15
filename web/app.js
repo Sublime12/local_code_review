@@ -20,8 +20,31 @@ function reviewApp() {
     filesList: [],
     treeNodes: [],
     fileTotalLines: {},
+    codebaseTotalLines: 0,
+    codebaseFile: null,
+    generalComposerOpen: false,
+    generalDraft: '',
     scrollObserver: null,
     hljs: null,
+
+    get generalComments() {
+      if (!this.comments || !this.comments.length) return [];
+      return this.comments.filter(c => !c.filePath);
+    },
+
+    get totalAddedLines() {
+      if (!this.filesList || !this.filesList.length) return 0;
+      return this.filesList.reduce((sum, f) => sum + (f.addedLines || 0), 0);
+    },
+
+    get totalDeletedLines() {
+      if (!this.filesList || !this.filesList.length) return 0;
+      return this.filesList.reduce((sum, f) => sum + (f.deletedLines || 0), 0);
+    },
+
+    get totalUpdatedLines() {
+      return this.totalAddedLines + this.totalDeletedLines;
+    },
 
     async init() {
       this.setupHeaderObserver();
@@ -170,7 +193,9 @@ function reviewApp() {
             depth: depth,
             status: file.status,
             addedLines: file.addedLines,
-            deletedLines: file.deletedLines
+            deletedLines: file.deletedLines,
+            lineCount: file.lineCount || 0,
+            isBinary: Boolean(file.isBinary)
           });
         }
       }
@@ -232,8 +257,12 @@ function reviewApp() {
       });
     },
 
-    scrollToFile(filePath) {
+    async scrollToFile(filePath) {
       this.activeFile = filePath;
+      if (this.diffMode === 'codebase') {
+        await this.openCodebaseFile(filePath);
+        return;
+      }
       const target = document.querySelector(`[data-file-path="${CSS.escape(filePath)}"]`);
       if (target) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -290,6 +319,9 @@ function reviewApp() {
         if (data.ref) {
           this.ref = data.ref;
         }
+        if (data.mode) {
+          this.diffMode = data.mode;
+        }
       } catch (err) {
         console.error('Error fetching status:', err);
       }
@@ -305,6 +337,11 @@ function reviewApp() {
     },
 
     async loadDiff() {
+      if (this.diffMode === 'codebase') {
+        return await this.loadCodebaseFiles();
+      }
+      this.codebaseFile = null;
+      this.codebaseTotalLines = 0;
       this.loading = true;
       try {
         const refParam = this.ref ? `&ref=${encodeURIComponent(this.ref.trim())}` : '&ref=';
@@ -320,6 +357,189 @@ function reviewApp() {
       } finally {
         this.loading = false;
       }
+    },
+
+    ensureHljs() {
+      if (this.hljs) return this.hljs;
+      if (typeof Diff2HtmlUI !== 'undefined') {
+        try {
+          const ui = new Diff2HtmlUI(document.createElement('div'), '', { highlight: true });
+          if (ui && ui.hljs) {
+            registerGenericCodeGrammar(ui.hljs);
+            this.hljs = ui.hljs;
+            return this.hljs;
+          }
+        } catch (err) {
+          console.error('Error initializing hljs:', err);
+        }
+      }
+      if (typeof window !== 'undefined' && window.hljs) {
+        registerGenericCodeGrammar(window.hljs);
+        this.hljs = window.hljs;
+      }
+      return this.hljs;
+    },
+
+    async loadCodebaseFiles() {
+      this.loading = true;
+      try {
+        const res = await fetch('/api/codebase/files');
+        const data = await res.json();
+        const files = Array.isArray(data.files) ? data.files : [];
+        const fileLines = data.fileLines || {};
+        const binaryFiles = data.binaryFiles || {};
+        this.diffText = '';
+        this.fileTotalLines = fileLines;
+        this.codebaseTotalLines = typeof data.totalLines === 'number' ? data.totalLines : 0;
+        this.filesList = files.map(filePath => ({
+          path: filePath,
+          name: filePath.split('/').pop(),
+          status: '',
+          addedLines: 0,
+          deletedLines: 0,
+          lineCount: fileLines[filePath] || 0,
+          isBinary: Boolean(binaryFiles[filePath])
+        }));
+        this.buildTree();
+        this.empty = files.length === 0;
+
+        if (this.empty) {
+          this.codebaseFile = null;
+          this.activeFile = '';
+          const container = document.getElementById('diff-viewer');
+          if (container) {
+            container.innerHTML = `
+              <div class="empty-state">
+                <h2>No files found</h2>
+                <p>No repository source files were returned for this directory.</p>
+              </div>
+            `;
+          }
+          return;
+        }
+
+        let target = this.activeFile && files.includes(this.activeFile) ? this.activeFile : '';
+        if (!target) {
+          const firstTreeFile = this.treeNodes.find(n => !n.isFolder && !n.isBinary) || this.treeNodes.find(n => !n.isFolder);
+          target = firstTreeFile ? firstTreeFile.path : files[0];
+        }
+        await this.openCodebaseFile(target);
+      } catch (err) {
+        console.error('Error fetching codebase files:', err);
+        this.empty = true;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async openCodebaseFile(filePath) {
+      if (!filePath) return;
+      try {
+        const res = await fetch(`/api/codebase/file?path=${encodeURIComponent(filePath)}`);
+        if (!res.ok) {
+          this.showToast(`Failed to load ${filePath}`);
+          return;
+        }
+        const data = await res.json();
+        this.activeFile = filePath;
+        this.codebaseFile = data;
+        this.fileTotalLines[filePath] = data.totalLines || 0;
+        this.renderCodebaseFile(data);
+      } catch (err) {
+        console.error('Error loading codebase file:', err);
+        this.showToast(`Failed to load ${filePath}`);
+      }
+    },
+
+    renderCodebaseFile(fileData) {
+      const container = document.getElementById('diff-viewer');
+      if (!container) return;
+
+      if (this.scrollObserver) {
+        this.scrollObserver.disconnect();
+      }
+      this.ensureHljs();
+
+      const filePath = fileData.path || '';
+      const totalLines = fileData.totalLines || 0;
+      const countLabel = fileData.binary ? 'Binary file' : `${totalLines} lines`;
+
+      let bodyHtml = '';
+      if (fileData.binary) {
+        bodyHtml = `
+          <div class="codebase-binary-notice">
+            Binary file cannot be displayed as source code. Use <strong>Comment on file</strong> above or <strong>Architecture &amp; General Notes</strong> to record feedback.
+          </div>
+        `;
+      } else if (!fileData.lines || fileData.lines.length === 0) {
+        bodyHtml = `
+          <div class="codebase-binary-notice">
+            Empty file (0 lines).
+          </div>
+        `;
+      } else {
+        const rowsHtml = fileData.lines.map(line => {
+          const codeHtml = this.highlightCode(filePath, line.content);
+          return `
+            <tr class="codebase-line-row">
+              <td class="d2h-code-linenumber d2h-cntx codebase-linenumber">
+                <div class="line-num2">${line.lineNumber}</div>
+              </td>
+              <td class="d2h-cntx">
+                <div class="d2h-code-line codebase-code-line">
+                  <span class="d2h-code-line-ctn hljs">${codeHtml}</span>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        bodyHtml = `
+          <div class="d2h-file-diff">
+            <div class="d2h-code-wrapper">
+              <table class="d2h-diff-table">
+                <tbody class="d2h-diff-tbody">${rowsHtml}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="d2h-wrapper">
+          <div class="d2h-file-wrapper">
+            <div class="d2h-file-header">
+              <span class="d2h-file-name-wrapper">
+                <span class="d2h-file-name">${escapeHtml(filePath)}</span>
+                <span class="d2h-tag">${escapeHtml(countLabel)}</span>
+              </span>
+            </div>
+            ${bodyHtml}
+          </div>
+        </div>
+      `;
+
+      this.attachLineListeners();
+      this.renderExistingComments();
+      const diffContent = document.querySelector('.diff-content');
+      if (diffContent) diffContent.scrollTop = 0;
+    },
+
+    openGeneralComposer() {
+      this.generalComposerOpen = true;
+      this.$nextTick(() => {
+        if (this.$refs.generalTextarea) {
+          this.$refs.generalTextarea.focus();
+        }
+      });
+    },
+
+    async submitGeneralComment() {
+      const text = (this.generalDraft || '').trim();
+      if (!text) return;
+      await this.addComment('', 0, text);
+      this.generalDraft = '';
+      this.generalComposerOpen = false;
     },
 
     applyRef() {
@@ -1139,6 +1359,30 @@ function reviewApp() {
         fileEl.setAttribute('data-file-path', filePath);
         fileEl.id = 'diff-file-' + encodeURIComponent(filePath);
 
+        const headerEl = fileEl.querySelector('.d2h-file-header');
+        if (headerEl && !fileEl.querySelector('.file-level-comments-container')) {
+          const container = document.createElement('div');
+          container.className = 'file-level-comments-container';
+          headerEl.insertAdjacentElement('afterend', container);
+        }
+        if (headerEl && !headerEl.querySelector('.file-comment-btn')) {
+          let actions = headerEl.querySelector('.file-header-actions');
+          if (!actions) {
+            actions = document.createElement('div');
+            actions.className = 'file-header-actions';
+            headerEl.appendChild(actions);
+          }
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-secondary file-comment-btn';
+          btn.textContent = 'Comment on file';
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showFileCommentInput(filePath, fileEl);
+          });
+          actions.appendChild(btn);
+        }
+
         const lineNumbers = fileEl.querySelectorAll('.d2h-code-linenumber, .d2h-code-side-linenumber');
         lineNumbers.forEach(lineEl => {
           if (lineEl.classList.contains('d2h-info') ||
@@ -1160,6 +1404,73 @@ function reviewApp() {
           });
         });
       });
+    },
+
+    buildCommentComposerBox(titleHtml, placeholder, onSave, onCancel) {
+      const box = document.createElement('div');
+      box.className = 'inline-comment-box';
+      box.innerHTML = `
+        <div class="comment-box-header">
+          <span>${titleHtml}</span>
+          <span style="font-size: 0.75rem;">Press Ctrl+Enter to save</span>
+        </div>
+        <textarea class="comment-textarea" placeholder="${escapeHtml(placeholder)}"></textarea>
+        <div class="comment-actions">
+          <button type="button" class="btn btn-secondary btn-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary btn-save">Add Comment</button>
+        </div>
+      `;
+
+      const textarea = box.querySelector('textarea');
+      const saveBtn = box.querySelector('.btn-save');
+      const cancelBtn = box.querySelector('.btn-cancel');
+
+      const save = async () => {
+        const text = textarea.value.trim();
+        if (!text) return;
+        await onSave(text);
+      };
+
+      saveBtn.addEventListener('click', save);
+      cancelBtn.addEventListener('click', onCancel);
+      textarea.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          save();
+        } else if (e.key === 'Escape') {
+          onCancel();
+        }
+      });
+
+      return { box, textarea };
+    },
+
+    showFileCommentInput(filePath, fileEl) {
+      const container = fileEl.querySelector('.file-level-comments-container');
+      if (!container) return;
+
+      const existingBox = container.querySelector('.inline-file-composer');
+      if (existingBox) {
+        const textarea = existingBox.querySelector('textarea');
+        if (textarea) textarea.focus();
+        return;
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'inline-file-composer';
+      const { box, textarea } = this.buildCommentComposerBox(
+        `<strong>Add File Note</strong> on <code>${escapeHtml(filePath)}</code>`,
+        "Leave a file-level review or architecture suggestion (e.g., 'Split this module into smaller handlers')...",
+        async (text) => {
+          await this.addComment(filePath, 0, text);
+          wrapper.remove();
+          this.renderExistingComments();
+        },
+        () => wrapper.remove()
+      );
+      wrapper.appendChild(box);
+      container.prepend(wrapper);
+      textarea.focus();
     },
 
     showCommentInput(filePath, lineNumber, rowElement) {
@@ -1196,22 +1507,27 @@ function reviewApp() {
       const commentRow = document.createElement('tr');
       commentRow.className = 'inline-comment-row';
       const colSpan = rowElement.children.length || 2;
+      const td = document.createElement('td');
+      td.setAttribute('colspan', String(colSpan));
+      commentRow.appendChild(td);
 
-      commentRow.innerHTML = `
-        <td colspan="${colSpan}">
-          <div class="inline-comment-box">
-            <div class="comment-box-header">
-              <span><strong>Add Comment</strong> on <code>${escapeHtml(filePath)}:${lineNumber}</code></span>
-              <span style="font-size: 0.75rem;">Press Ctrl+Enter to save</span>
-            </div>
-            <textarea class="comment-textarea" placeholder="Leave a review comment for the agent (e.g., 'You should handle errors here instead of ignoring them')..."></textarea>
-            <div class="comment-actions">
-              <button type="button" class="btn btn-secondary btn-cancel">Cancel</button>
-              <button type="button" class="btn btn-primary btn-save">Add Comment</button>
-            </div>
-          </div>
-        </td>
-      `;
+      const cleanup = () => {
+        if (ro) ro.disconnect();
+        if (spacerRow) spacerRow.remove();
+        commentRow.remove();
+      };
+
+      const { box, textarea } = this.buildCommentComposerBox(
+        `<strong>Add Comment</strong> on <code>${escapeHtml(filePath)}:${lineNumber}</code>`,
+        "Leave a review comment for the agent (e.g., 'You should handle errors here instead of ignoring them')...",
+        async (text) => {
+          await this.addComment(filePath, lineNumber, text);
+          cleanup();
+          this.renderExistingComments();
+        },
+        cleanup
+      );
+      td.appendChild(box);
 
       rowElement.parentNode.insertBefore(commentRow, rowElement.nextSibling);
 
@@ -1224,33 +1540,7 @@ function reviewApp() {
         ro.observe(commentRow);
       }
 
-      const textarea = commentRow.querySelector('textarea');
-      const saveBtn = commentRow.querySelector('.btn-save');
-      const cancelBtn = commentRow.querySelector('.btn-cancel');
-
       textarea.focus();
-
-      const cleanup = () => {
-        if (ro) ro.disconnect();
-        if (spacerRow) spacerRow.remove();
-        commentRow.remove();
-      };
-
-      const save = async () => {
-        const text = textarea.value.trim();
-        if (!text) return;
-        await this.addComment(filePath, lineNumber, text);
-        cleanup();
-        this.renderExistingComments();
-      };
-
-      saveBtn.addEventListener('click', save);
-      cancelBtn.addEventListener('click', cleanup);
-      textarea.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-          save();
-        }
-      });
     },
 
     async addComment(filePath, line, text) {
@@ -1260,9 +1550,19 @@ function reviewApp() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filePath, line, text })
         });
+        if (!res.ok) {
+          this.showToast('Failed to save comment');
+          return;
+        }
         const savedComment = await res.json();
         this.comments.push(savedComment);
-        this.showToast(`Comment added to ${filePath}:${line}`);
+        if (!filePath) {
+          this.showToast('General architecture note added');
+        } else if (!line) {
+          this.showToast(`Comment added to ${filePath}`);
+        } else {
+          this.showToast(`Comment added to ${filePath}:${line}`);
+        }
       } catch (err) {
         console.error('Error saving comment:', err);
       }
@@ -1279,8 +1579,21 @@ function reviewApp() {
       }
     },
 
+    createCommentCardElement(comment, headerLabel, extraClass) {
+      const card = document.createElement('div');
+      card.className = `existing-comment-card${extraClass ? ' ' + extraClass : ''}`;
+      card.innerHTML = `
+        <div class="existing-comment-header">
+          <span><strong>${escapeHtml(headerLabel)}</strong></span>
+          <button type="button" class="btn btn-danger" style="padding: 2px 8px; font-size: 0.75rem;" data-id="${escapeHtml(comment.id)}">Delete</button>
+        </div>
+        <div class="existing-comment-body">${escapeHtml(comment.text)}</div>
+      `;
+      return card;
+    },
+
     renderExistingComments() {
-      document.querySelectorAll('.rendered-comment-row, .inline-comment-spacer-row').forEach(el => el.remove());
+      document.querySelectorAll('.rendered-comment-row, .inline-comment-spacer-row, .rendered-file-comment-card').forEach(el => el.remove());
 
       const fileWrappers = document.querySelectorAll('.d2h-file-wrapper');
       fileWrappers.forEach(fileEl => {
@@ -1288,8 +1601,23 @@ function reviewApp() {
         if (!fileNameEl) return;
         const filePath = fileNameEl.textContent.trim();
 
+        const fileLevelContainer = fileEl.querySelector('.file-level-comments-container');
         const fileComments = this.comments.filter(c => c.filePath === filePath);
         fileComments.forEach(comment => {
+          if (comment.line <= 0) {
+            if (fileLevelContainer) {
+              const card = this.createCommentCardElement(comment, 'File Note', 'rendered-file-comment-card');
+              const delBtn = card.querySelector('button');
+              if (delBtn) {
+                delBtn.addEventListener('click', async () => {
+                  await this.deleteComment(comment.id);
+                });
+              }
+              fileLevelContainer.appendChild(card);
+            }
+            return;
+          }
+
           let targetRow = null;
 
           const sideDiffs = fileEl.querySelectorAll('.d2h-file-side-diff');
@@ -1351,18 +1679,11 @@ function reviewApp() {
       const commentRow = document.createElement('tr');
       commentRow.className = 'rendered-comment-row';
       const colSpan = rowElement.children.length || 2;
-
-      commentRow.innerHTML = `
-        <td colspan="${colSpan}">
-          <div class="existing-comment-card">
-            <div class="existing-comment-header">
-              <span><strong>Line ${comment.line}</strong></span>
-              <button class="btn btn-danger" style="padding: 2px 8px; font-size: 0.75rem;" data-id="${escapeHtml(comment.id)}">Delete</button>
-            </div>
-            <div class="existing-comment-body">${escapeHtml(comment.text)}</div>
-          </div>
-        </td>
-      `;
+      const td = document.createElement('td');
+      td.setAttribute('colspan', String(colSpan));
+      const card = this.createCommentCardElement(comment, `Line ${comment.line}`, '');
+      td.appendChild(card);
+      commentRow.appendChild(td);
 
       rowElement.parentNode.insertBefore(commentRow, rowElement.nextSibling);
 

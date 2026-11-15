@@ -83,9 +83,13 @@ func startServer(t *testing.T, extraArgs ...string) (string, func()) {
 	t.Helper()
 
 	defaultRef := ""
-	for i := 0; i < len(extraArgs)-1; i++ {
-		if extraArgs[i] == "-ref" {
+	codebaseMode := false
+	for i := 0; i < len(extraArgs); i++ {
+		if extraArgs[i] == "-ref" && i+1 < len(extraArgs) {
 			defaultRef = extraArgs[i+1]
+			i++
+		} else if extraArgs[i] == "-codebase" || extraArgs[i] == "--codebase" {
+			codebaseMode = true
 		}
 	}
 
@@ -96,6 +100,9 @@ func startServer(t *testing.T, extraArgs ...string) (string, func()) {
 	port := l.Addr().(*net.TCPAddr).Port
 
 	srv := server.NewServer(testRepoRoot, web.Assets, defaultRef)
+	if codebaseMode {
+		srv.SetDefaultMode("codebase")
+	}
 	httpServer := &http.Server{
 		Handler: srv.Handler(),
 	}
@@ -188,6 +195,11 @@ func TestDashboardLoad(t *testing.T) {
 	selectedView, err := viewSelect.InputValue()
 	if err != nil || selectedView != "line-by-line" {
 		t.Errorf("Expected default view mode to be 'line-by-line', got: %q", selectedView)
+	}
+
+	diffSummary, err := page.Locator(".sidebar-summary-bar").TextContent()
+	if err != nil || !strings.Contains(diffSummary, "lines updated") {
+		t.Errorf("Expected diff sidebar summary to contain 'lines updated', got %q (err=%v)", diffSummary, err)
 	}
 }
 
@@ -1085,5 +1097,207 @@ func TestUnrecognizedLanguageDefaultHighlighting(t *testing.T) {
 	}
 	if data["genericHasTitle"] != true {
 		t.Errorf("Expected unrecognized language highlighting to contain hljs-title: %+v", data)
+	}
+}
+
+func TestCodebaseReviewModeAndArchitectureComments(t *testing.T) {
+	baseURL, cleanup := startServer(t)
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	modeSelect := page.Locator(".mode-select")
+	if err := modeSelect.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Mode select not visible: %v", err)
+	}
+	if _, err := modeSelect.SelectOption(playwright.SelectOptionValues{Values: playwright.StringSlice("codebase")}); err != nil {
+		t.Fatalf("Failed to select codebase mode: %v", err)
+	}
+
+	// Sidebar header updates and diff-only controls are hidden
+	sidebarTitle := page.Locator(".sidebar-title")
+	if err := page.Locator(".sidebar-title:has-text('Project files')").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Sidebar title did not update to Project files: %v", err)
+	}
+	if title, err := sidebarTitle.TextContent(); err != nil || !strings.Contains(title, "Project files") {
+		t.Errorf("Expected sidebar title 'Project files', got %q", title)
+	}
+	codebaseSummary, err := page.Locator(".sidebar-summary-bar").TextContent()
+	if err != nil || !strings.Contains(codebaseSummary, "total lines") {
+		t.Errorf("Expected codebase sidebar summary to show 'total lines', got %q (err=%v)", codebaseSummary, err)
+	}
+	if visible, err := page.Locator(".context-select").IsVisible(); err != nil || visible {
+		t.Errorf("Expected context selector to be hidden in codebase mode (visible=%v, err=%v)", visible, err)
+	}
+
+	// Filter for main.go and open it
+	filterInput := page.Locator(".sidebar-filter-input")
+	if err := filterInput.Fill("main.go"); err != nil {
+		t.Fatalf("Failed to fill filter: %v", err)
+	}
+	mainRow := page.Locator(`.tree-row.is-file[title="main.go"]`)
+	if err := mainRow.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("main.go not visible in file tree: %v", err)
+	}
+	if err := mainRow.Click(); err != nil {
+		t.Fatalf("Failed to click main.go: %v", err)
+	}
+
+	fileNameLocator := page.Locator(`.d2h-file-name:has-text("main.go")`)
+	if err := fileNameLocator.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("main.go viewer did not render: %v", err)
+	}
+
+	// Verify full source code lines are clickable
+	firstLine := page.Locator(".codebase-linenumber").First()
+	if err := firstLine.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Codebase line numbers not visible: %v", err)
+	}
+	if err := firstLine.Click(); err != nil {
+		t.Fatalf("Failed to click line number: %v", err)
+	}
+	lineTextarea := page.Locator(".inline-comment-row .comment-textarea")
+	if err := lineTextarea.Fill("Split flag setup into dedicated config loader"); err != nil {
+		t.Fatalf("Failed to fill inline comment: %v", err)
+	}
+	if err := page.Locator(".inline-comment-row .btn-save").Click(); err != nil {
+		t.Fatalf("Failed to submit inline comment: %v", err)
+	}
+	if err := page.Locator(".rendered-comment-row").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Inline comment card did not appear: %v", err)
+	}
+
+	// Add file-level comment on main.go
+	if err := page.Locator(".file-comment-btn").Click(); err != nil {
+		t.Fatalf("Failed to click Comment on file: %v", err)
+	}
+	fileTextarea := page.Locator(".inline-file-composer .comment-textarea")
+	if err := fileTextarea.Fill("Keep main.go focused strictly on wiring"); err != nil {
+		t.Fatalf("Failed to fill file-level comment: %v", err)
+	}
+	if err := page.Locator(".inline-file-composer .btn-save").Click(); err != nil {
+		t.Fatalf("Failed to save file-level comment: %v", err)
+	}
+	if err := page.Locator(".rendered-file-comment-card").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("File-level comment card did not render: %v", err)
+	}
+
+	// Add General / Architecture note
+	if err := page.Locator(".add-general-note-btn").Click(); err != nil {
+		t.Fatalf("Failed to open general note composer: %v", err)
+	}
+	generalTextarea := page.Locator(".general-comment-textarea")
+	if err := generalTextarea.Fill("Adopt hexagonal architecture separating domain and HTTP handlers"); err != nil {
+		t.Fatalf("Failed to fill general note: %v", err)
+	}
+	if err := page.Locator(".save-general-note-btn").Click(); err != nil {
+		t.Fatalf("Failed to save general note: %v", err)
+	}
+	if err := page.Locator(".general-comment-card").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("General comment card did not appear: %v", err)
+	}
+
+	// Verify badge count equals 3
+	if badgeText, err := page.Locator("header .badge").TextContent(); err != nil || strings.TrimSpace(badgeText) != "3" {
+		t.Errorf("Expected badge count 3, got %q (err=%v)", badgeText, err)
+	}
+
+	// Save to .review.md and verify formatted prompt contents
+	if err := page.Locator(".btn-blue").Click(); err != nil {
+		t.Fatalf("Failed to click Save to .review.md: %v", err)
+	}
+	if err := page.Locator(".toast:has-text('Saved review to .review.md')").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Save toast did not appear: %v", err)
+	}
+
+	reviewBytes, err := os.ReadFile(filepath.Join(testRepoRoot, ".review.md"))
+	if err != nil {
+		t.Fatalf("Failed to read .review.md: %v", err)
+	}
+	reviewContent := string(reviewBytes)
+	expectedFragments := []string{
+		"review: Split flag setup into dedicated config loader\nmain.go:1",
+		"review: Keep main.go focused strictly on wiring\nmain.go",
+		"review (general): Adopt hexagonal architecture separating domain and HTTP handlers",
+	}
+	for _, frag := range expectedFragments {
+		if !strings.Contains(reviewContent, frag) {
+			t.Errorf(".review.md missing %q\nContent:\n%s", frag, reviewContent)
+		}
+	}
+}
+
+func TestCodebaseStartupFlagAndFileSwitching(t *testing.T) {
+	baseURL, cleanup := startServer(t, "-codebase")
+	defer cleanup()
+	resetServerState(t, baseURL)
+
+	page := newTestPage(t)
+	if _, err := page.Goto(baseURL); err != nil {
+		t.Fatalf("Failed to navigate: %v", err)
+	}
+
+	if err := page.Locator(".sidebar-title:has-text('Project files')").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Expected -codebase startup mode to load Project files: %v", err)
+	}
+	if err := page.Locator(".d2h-file-wrapper").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Expected initial codebase file wrapper to render: %v", err)
+	}
+
+	// Open server/comments.go, add comment, switch to server/config.go, switch back
+	filterInput := page.Locator(".sidebar-filter-input")
+	if err := filterInput.Fill("server/comments.go"); err != nil {
+		t.Fatal(err)
+	}
+	commentsRow := page.Locator(`.tree-row.is-file[title="server/comments.go"]`)
+	if err := commentsRow.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatal(err)
+	}
+	if err := commentsRow.Click(); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.Locator(`.d2h-file-name:has-text("server/comments.go")`).WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatal(err)
+	}
+
+	lineFive := page.Locator(".codebase-linenumber").Nth(4)
+	if err := lineFive.Click(); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.Locator(".inline-comment-row .comment-textarea").Fill("Consider abstracting persistence interface"); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.Locator(".inline-comment-row .btn-save").Click(); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.Locator(".rendered-comment-row").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch to server/config.go
+	if err := filterInput.Fill("server/config.go"); err != nil {
+		t.Fatal(err)
+	}
+	configRow := page.Locator(`.tree-row.is-file[title="server/config.go"]`)
+	if err := configRow.Click(); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.Locator(`.d2h-file-name:has-text("server/config.go")`).WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch back to server/comments.go and verify comment is still shown
+	if err := filterInput.Fill("server/comments.go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := commentsRow.Click(); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.Locator(`.rendered-comment-row:has-text("Consider abstracting persistence interface")`).WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}); err != nil {
+		t.Fatalf("Persisted inline comment not restored after switching back: %v", err)
 	}
 }

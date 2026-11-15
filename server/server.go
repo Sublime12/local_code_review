@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/Sublime12/local_code_review/git"
 )
 
 type Server struct {
-	repoRoot   string
-	defaultRef string
-	store      *CommentStore
-	webFS      embed.FS
+	repoRoot    string
+	defaultRef  string
+	defaultMode string
+	store       *CommentStore
+	webFS       embed.FS
 }
 
 func NewServer(repoRoot string, webFS embed.FS, defaultRef ...string) *Server {
@@ -30,6 +33,10 @@ func NewServer(repoRoot string, webFS embed.FS, defaultRef ...string) *Server {
 	}
 }
 
+func (s *Server) SetDefaultMode(mode string) {
+	s.defaultMode = mode
+}
+
 // Handler configures and returns the HTTP request multiplexer
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -37,6 +44,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/api/context", s.handleContext)
+	mux.HandleFunc("/api/codebase/files", s.handleCodebaseFiles)
+	mux.HandleFunc("/api/codebase/file", s.handleCodebaseFile)
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/export", s.handleExport)
 	mux.HandleFunc("/api/clear", s.handleClear)
@@ -60,6 +69,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"repoRoot": s.repoRoot,
 		"branch":   branch,
 		"ref":      s.defaultRef,
+		"mode":     s.defaultMode,
 	})
 }
 
@@ -178,12 +188,20 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if c.FilePath == "" || c.Line <= 0 || c.Text == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "filePath, line, and text are required"})
+		c.Text = strings.TrimSpace(c.Text)
+		if c.Text == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "comment text is required"})
 			return
 		}
+		if c.Line < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "line must be >= 0"})
+			return
+		}
+		if c.FilePath == "" {
+			c.Line = 0
+		}
 
-		if len(c.Snippet) == 0 {
+		if c.FilePath != "" && c.Line > 0 && len(c.Snippet) == 0 {
 			lines, _ := git.GetLineContext(s.repoRoot, c.FilePath, c.Line, 2)
 			c.Snippet = lines
 		}
@@ -241,6 +259,60 @@ func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.Clear()
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func (s *Server) handleCodebaseFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	files, err := git.ListRepoFiles(s.repoRoot)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if files == nil {
+		files = []string{}
+	}
+	fileLines, binaryFiles, totalLines := git.SummarizeRepoFiles(s.repoRoot, files)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"files":       files,
+		"fileLines":   fileLines,
+		"binaryFiles": binaryFiles,
+		"totalLines":  totalLines,
+	})
+}
+
+func (s *Server) handleCodebaseFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path parameter is required"})
+		return
+	}
+
+	lines, isBinary, err := git.GetFileContent(s.repoRoot, filePath)
+	if err != nil {
+		status := http.StatusBadRequest
+		if os.IsNotExist(err) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	if lines == nil {
+		lines = []git.CodeLine{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"path":       filePath,
+		"binary":     isBinary,
+		"lines":      lines,
+		"totalLines": len(lines),
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

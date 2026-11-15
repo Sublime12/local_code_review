@@ -16,6 +16,21 @@ func TestParseFlagsDefaults(t *testing.T) {
 	if opts.ref != "" {
 		t.Errorf("expected ref default to be empty, got %q", opts.ref)
 	}
+	if opts.codebase {
+		t.Errorf("expected codebase default to be false, got true")
+	}
+}
+
+func TestParseFlagsCodebase(t *testing.T) {
+	for _, arg := range []string{"-codebase", "--codebase"} {
+		opts, err := parseFlags([]string{arg})
+		if err != nil {
+			t.Fatalf("expected no error for %s, got %v", arg, err)
+		}
+		if !opts.codebase {
+			t.Errorf("expected codebase to be true with %s, got false", arg)
+		}
+	}
 }
 
 func TestParseFlagsBrowserOptIn(t *testing.T) {

@@ -43,6 +43,27 @@ func ConfigFilePath() (string, error) {
 	return filepath.Join(baseDir, ConfigAppDirName, ConfigFileName), nil
 }
 
+func normalizeConfig(cfg *AppConfig) {
+	if cfg.ViewMode != "side-by-side" && cfg.ViewMode != "line-by-line" {
+		cfg.ViewMode = "line-by-line"
+	}
+	switch cfg.DiffMode {
+	case "all", "unstaged", "staged", "branch", "codebase":
+	default:
+		cfg.DiffMode = "all"
+	}
+	if cfg.SidebarOpen == nil {
+		defaultOpen := true
+		cfg.SidebarOpen = &defaultOpen
+	}
+	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
+		cfg.SidebarWidth = 290
+	}
+	if cfg.ContextLines <= 0 {
+		cfg.ContextLines = 3
+	}
+}
+
 func (s *Server) loadConfig() AppConfig {
 	cfg := DefaultConfig()
 	cfgPath, err := ConfigFilePath()
@@ -54,42 +75,12 @@ func (s *Server) loadConfig() AppConfig {
 		return cfg
 	}
 	_ = json.Unmarshal(data, &cfg)
-	if cfg.ViewMode != "side-by-side" && cfg.ViewMode != "line-by-line" {
-		cfg.ViewMode = "line-by-line"
-	}
-	if cfg.DiffMode != "all" && cfg.DiffMode != "unstaged" && cfg.DiffMode != "staged" && cfg.DiffMode != "branch" {
-		cfg.DiffMode = "all"
-	}
-	if cfg.SidebarOpen == nil {
-		defaultOpen := true
-		cfg.SidebarOpen = &defaultOpen
-	}
-	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
-		cfg.SidebarWidth = 290
-	}
-	if cfg.ContextLines <= 0 {
-		cfg.ContextLines = 3
-	}
+	normalizeConfig(&cfg)
 	return cfg
 }
 
 func (s *Server) saveConfig(cfg AppConfig) error {
-	if cfg.ViewMode != "side-by-side" && cfg.ViewMode != "line-by-line" {
-		cfg.ViewMode = "line-by-line"
-	}
-	if cfg.DiffMode != "all" && cfg.DiffMode != "unstaged" && cfg.DiffMode != "staged" && cfg.DiffMode != "branch" {
-		cfg.DiffMode = "all"
-	}
-	if cfg.SidebarOpen == nil {
-		defaultOpen := true
-		cfg.SidebarOpen = &defaultOpen
-	}
-	if cfg.SidebarWidth < 160 || cfg.SidebarWidth > 800 {
-		cfg.SidebarWidth = 290
-	}
-	if cfg.ContextLines <= 0 {
-		cfg.ContextLines = 3
-	}
+	normalizeConfig(&cfg)
 	cfgPath, err := ConfigFilePath()
 	if err != nil {
 		return err

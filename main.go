@@ -21,9 +21,10 @@ import (
 var webAssets embed.FS
 
 type cliOptions struct {
-	port    int
-	browser bool
-	ref     string
+	port     int
+	browser  bool
+	ref      string
+	codebase bool
 }
 
 func parseFlags(args []string) (cliOptions, error) {
@@ -32,6 +33,7 @@ func parseFlags(args []string) (cliOptions, error) {
 	fs.IntVar(&opts.port, "port", 0, "Port to listen on (0 for automatic free port)")
 	fs.BoolVar(&opts.browser, "browser", false, "Open browser automatically")
 	fs.StringVar(&opts.ref, "ref", "", "Git ref to compare against (e.g. main, HEAD~1)")
+	fs.BoolVar(&opts.codebase, "codebase", false, "Review full repository codebase without git diff")
 	err := fs.Parse(args)
 	return opts, err
 }
@@ -69,6 +71,9 @@ func main() {
 	url := fmt.Sprintf("http://localhost:%d", assignedPort)
 
 	srv := server.NewServer(repoRoot, webAssets, opts.ref)
+	if opts.codebase {
+		srv.SetDefaultMode("codebase")
+	}
 	httpServer := &http.Server{
 		Handler: srv.Handler(),
 	}
@@ -82,7 +87,9 @@ func main() {
 	fmt.Println("=======================================================")
 	fmt.Println(" Local Code Review")
 	fmt.Printf(" Repository: %s\n", repoRoot)
-	if opts.ref != "" {
+	if opts.codebase {
+		fmt.Println(" Mode: Full Codebase (No Diff)")
+	} else if opts.ref != "" {
 		fmt.Printf(" Comparing against ref: %s\n", opts.ref)
 	}
 	fmt.Printf(" Server running at: %s\n", url)

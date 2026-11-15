@@ -43,4 +43,13 @@ func TestConfigLoadAndSave(t *testing.T) {
 	if loaded.ViewMode != "side-by-side" || loaded.DiffMode != "staged" || loaded.SidebarOpen == nil || *loaded.SidebarOpen != false || loaded.SidebarWidth != 420 || loaded.ContextLines != 25 {
 		t.Fatalf("Expected loaded config to match, got %+v", loaded)
 	}
+
+	codebaseCfg := AppConfig{DiffMode: "codebase"}
+	if err := s.saveConfig(codebaseCfg); err != nil {
+		t.Fatalf("Failed to save codebase config: %v", err)
+	}
+	loadedCodebase := s.loadConfig()
+	if loadedCodebase.DiffMode != "codebase" {
+		t.Fatalf("Expected DiffMode 'codebase', got %q", loadedCodebase.DiffMode)
+	}
 }

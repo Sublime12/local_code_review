@@ -19,6 +19,18 @@
       <h1>Local Code Review</h1>
       <span class="branch-badge" x-text="branch"></span>
       <span class="branch-badge ref-badge" x-show="ref" x-text="'ref: ' + ref" x-cloak></span>
+      <span class="lines-summary-badge" x-show="!loading && filesList.length > 0" x-cloak>
+        <template x-if="diffMode !== 'codebase'">
+          <span class="lines-summary-inner">
+            <span class="diff-stat-add" x-text="'+' + totalAddedLines.toLocaleString()"></span>
+            <span class="diff-stat-del" x-text="'-' + totalDeletedLines.toLocaleString()"></span>
+            <span class="lines-summary-muted" x-text="'(' + totalUpdatedLines.toLocaleString() + ' lines updated)'"></span>
+          </span>
+        </template>
+        <template x-if="diffMode === 'codebase'">
+          <span class="lines-summary-muted" x-text="codebaseTotalLines.toLocaleString() + ' total lines'"></span>
+        </template>
+      </span>
     </div>
 
     <div class="header-controls">
@@ -30,30 +42,32 @@
         <span class="files-badge" x-text="filesList.length"></span>
       </button>
 
-      <label style="font-size: 0.85rem; color: var(--gh-text-muted);">Diff:</label>
-      <select class="select-input" x-model="diffMode" @change="switchDiffMode($event.target.value)">
+      <label style="font-size: 0.85rem; color: var(--gh-text-muted);">Mode:</label>
+      <select class="select-input mode-select" x-model="diffMode" @change="switchDiffMode($event.target.value)">
         <option value="all">Uncommitted (Working Tree + Staged)</option>
         <option value="unstaged">Unstaged Only</option>
         <option value="staged">Staged Only</option>
         <option value="branch">Compare Ref / Branch</option>
+        <option value="codebase">Full Codebase (No Diff)</option>
       </select>
 
       <input type="text"
              class="select-input ref-input"
              placeholder="Ref (e.g. main, HEAD~1)"
              title="Git ref or branch to compare against"
+             x-show="diffMode !== 'codebase'"
              x-model="ref"
              @change="applyRef()"
              @keydown.enter="applyRef()">
 
-      <label style="font-size: 0.85rem; color: var(--gh-text-muted); margin-left: 8px;">View:</label>
-      <select class="select-input" x-model="viewMode" @change="switchView($event.target.value)">
+      <label x-show="diffMode !== 'codebase'" style="font-size: 0.85rem; color: var(--gh-text-muted); margin-left: 8px;">View:</label>
+      <select x-show="diffMode !== 'codebase'" class="select-input" x-model="viewMode" @change="switchView($event.target.value)">
         <option value="line-by-line">Unified</option>
         <option value="side-by-side">Split (Side-by-Side)</option>
       </select>
 
-      <label style="font-size: 0.85rem; color: var(--gh-text-muted); margin-left: 8px;">Context:</label>
-      <select class="select-input context-select" x-model.number="contextLines" @change="switchContextLines($event.target.value)">
+      <label x-show="diffMode !== 'codebase'" style="font-size: 0.85rem; color: var(--gh-text-muted); margin-left: 8px;">Context:</label>
+      <select x-show="diffMode !== 'codebase'" class="select-input context-select" x-model.number="contextLines" @change="switchContextLines($event.target.value)">
         <option value="3">3 lines</option>
         <option value="10">10 lines</option>
         <option value="25">25 lines</option>
@@ -62,7 +76,7 @@
         <option value="100000">Full file</option>
       </select>
 
-      <button class="btn btn-secondary" @click="loadDiff()" title="Reload Git Diff">
+      <button class="btn btn-secondary" @click="loadDiff()" :title="diffMode === 'codebase' ? 'Reload Codebase Files' : 'Reload Git Diff'">
         Refresh
       </button>
 
@@ -88,7 +102,7 @@
            title="Drag to resize file tree"></div>
       <div class="sidebar-header">
         <div class="sidebar-title">
-          <span>Files changed</span>
+          <span x-text="diffMode === 'codebase' ? 'Project files' : 'Files changed'">Files changed</span>
           <span class="files-badge" x-text="filesList.length"></span>
         </div>
         <div class="sidebar-actions">
@@ -108,13 +122,28 @@
         </div>
       </div>
 
+      <div class="sidebar-summary-bar" x-show="!loading && filesList.length > 0" x-cloak>
+        <template x-if="diffMode !== 'codebase'">
+          <div class="sidebar-summary-content">
+            <span class="diff-stat-add" x-text="'+' + totalAddedLines.toLocaleString()"></span>
+            <span class="diff-stat-del" x-text="'-' + totalDeletedLines.toLocaleString()"></span>
+            <span class="lines-summary-muted" x-text="totalUpdatedLines.toLocaleString() + ' lines updated'"></span>
+          </div>
+        </template>
+        <template x-if="diffMode === 'codebase'">
+          <div class="sidebar-summary-content">
+            <span class="lines-summary-muted" x-text="codebaseTotalLines.toLocaleString() + ' total lines'"></span>
+          </div>
+        </template>
+      </div>
+
       <div class="sidebar-filter-wrapper">
         <svg class="search-icon" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
           <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/>
         </svg>
         <input type="text"
                class="sidebar-filter-input"
-               placeholder="Filter changed files..."
+               :placeholder="diffMode === 'codebase' ? 'Filter files...' : 'Filter changed files...'"
                x-model="fileFilter">
         <button class="filter-clear-btn" x-show="fileFilter" @click="fileFilter = ''" title="Clear filter">&times;</button>
       </div>
@@ -143,10 +172,14 @@
             <template x-if="!item.isFolder">
               <div class="file-content">
                 <span class="status-badge"
+                      x-show="item.status"
                       :class="'status-' + item.status.toLowerCase()"
                       x-text="item.status"
                       :title="getStatusLabel(item.status)">
                 </span>
+                <svg class="tree-file-icon" x-show="!item.status" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/>
+                </svg>
                 <span class="tree-name file-name" x-text="item.name"></span>
                 <div class="file-meta">
                   <span class="comment-bubble" x-show="getFileCommentsCount(item.path) > 0" :title="getFileCommentsCount(item.path) + ' comment(s)'">
@@ -154,6 +187,8 @@
                   </span>
                   <span class="diff-stat-add" x-show="item.addedLines > 0" x-text="'+' + item.addedLines"></span>
                   <span class="diff-stat-del" x-show="item.deletedLines > 0" x-text="'-' + item.deletedLines"></span>
+                  <span class="codebase-stat-lines" x-show="diffMode === 'codebase' && item.isBinary">bin</span>
+                  <span class="codebase-stat-lines" x-show="diffMode === 'codebase' && !item.isBinary" x-text="item.lineCount + 'L'"></span>
                 </div>
               </div>
             </template>
@@ -173,8 +208,58 @@
     </button>
 
     <div class="diff-content">
-      <div x-show="loading" style="text-align: center; padding: 40px; color: var(--gh-text-muted);">
-        Loading Git Diff...
+      <section class="general-notes-section" x-show="!loading" x-cloak>
+        <div class="general-notes-header">
+          <div class="general-notes-title">
+            <span>Architecture &amp; General Notes</span>
+            <span class="files-badge" x-show="generalComments.length > 0" x-text="generalComments.length"></span>
+            <span class="general-notes-hint" x-show="generalComments.length === 0 && !generalComposerOpen">Project-wide design, structure, or refactoring suggestions</span>
+          </div>
+          <button type="button"
+                  class="btn btn-secondary btn-sm add-general-note-btn"
+                  x-show="!generalComposerOpen"
+                  @click="openGeneralComposer()">
+            + Add General Note
+          </button>
+        </div>
+
+        <div class="general-composer" x-show="generalComposerOpen" x-cloak>
+          <div class="general-composer-box">
+            <div class="comment-box-header">
+              <span><strong>Add Project / Architecture Note</strong></span>
+              <span style="font-size: 0.75rem;">Press Ctrl+Enter to save</span>
+            </div>
+            <textarea x-ref="generalTextarea"
+                      x-model="generalDraft"
+                      class="comment-textarea general-comment-textarea"
+                      @keydown.ctrl.enter.prevent="submitGeneralComment()"
+                      @keydown.meta.enter.prevent="submitGeneralComment()"
+                      @keydown.escape="generalComposerOpen = false"
+                      placeholder="Suggest architecture changes, package restructuring, or cross-cutting improvements..."></textarea>
+            <div class="comment-actions">
+              <button type="button" class="btn btn-secondary" @click="generalComposerOpen = false">Cancel</button>
+              <button type="button" class="btn btn-primary save-general-note-btn" @click="submitGeneralComment()">Add Note</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="general-notes-list" x-show="generalComments.length > 0" x-cloak>
+          <template x-for="comment in generalComments" :key="comment.id">
+            <div class="existing-comment-card general-comment-card">
+              <div class="existing-comment-header">
+                <span><strong>General / Architecture</strong></span>
+                <button type="button"
+                        class="btn btn-danger"
+                        style="padding: 2px 8px; font-size: 0.75rem;"
+                        @click="deleteComment(comment.id)">Delete</button>
+              </div>
+              <div class="existing-comment-body" x-text="comment.text"></div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <div x-show="loading" style="text-align: center; padding: 40px; color: var(--gh-text-muted);" x-text="diffMode === 'codebase' ? 'Loading Codebase...' : 'Loading Git Diff...'">
       </div>
       <div id="diff-viewer" x-show="!loading"></div>
     </div>

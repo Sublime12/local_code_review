@@ -48,3 +48,33 @@ func TestCommentStoreAndPromptGeneration(t *testing.T) {
 		}
 	}
 }
+
+func TestCommentStoreGeneralAndFileComments(t *testing.T) {
+	store := NewCommentStore()
+
+	store.AddOrUpdate(&Comment{
+		FilePath: "",
+		Line:     0,
+		Text:     "Split server package into handlers and domain store",
+	})
+	store.AddOrUpdate(&Comment{
+		FilePath: "server/server.go",
+		Line:     0,
+		Text:     "Extract routing middleware here",
+	})
+
+	prompt := store.GeneratePrompt()
+
+	expectedFragments := []string{
+		"review (general): Split server package into handlers and domain store",
+		"review: Extract routing middleware here\nserver/server.go",
+	}
+	for _, frag := range expectedFragments {
+		if !strings.Contains(prompt, frag) {
+			t.Errorf("Prompt missing expected fragment: %q\nPrompt output:\n%s", frag, prompt)
+		}
+	}
+	if strings.Contains(prompt, ":0") {
+		t.Errorf("Prompt should not include :0 for general or file-level comments:\n%s", prompt)
+	}
+}
